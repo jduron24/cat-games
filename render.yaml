@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: codechess-hackathon
+    runtime: node
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm run server
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 22.14.0
