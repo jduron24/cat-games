@@ -11,6 +11,7 @@
     "ui:mock": "tsx src/index.ts --mock"
   },
   "dependencies": {
+    "@codechess/shared": "0.1.0",
     "chess.js": "^1.4.0",
     "terminal-kit": "^3.1.4",
     "ws": "^8.21.3"

@@ -7,6 +7,10 @@
   "exports": {
     ".": "./src/protocol.ts"
   },
+  "scripts": {
+    "test": "tsx --test test/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
   "devDependencies": {
     "@types/node": "^24.3.0",
     "tsx": "^4.20.5",

@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@codechess/shared": "0.1.0",
     "chess.js": "^1.4.0",
     "ws": "^8.18.3"
   },
