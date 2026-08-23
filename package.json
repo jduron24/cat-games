@@ -5,6 +5,7 @@
     "node": ">=22.13"
   },
   "workspaces": [
+    "codechess/companion",
     "codechess/client",
     "codechess/server",
     "codechess/agent",
@@ -19,6 +20,10 @@
     "server:dev": "npm run dev --workspace @codechess/server --",
     "agent": "npm run dev --workspace @codechess/agent --",
     "ui": "npm run ui --workspace @codechess/client --",
-    "ui:mock": "npm run ui:mock --workspace @codechess/client --"
+    "ui:mock": "npm run ui:mock --workspace @codechess/client --",
+    "prepare": "npm run build --workspace @codechess/companion"
+  },
+  "bin": {
+    "codechess": "codechess/companion/dist/cli.js"
   }
 }
