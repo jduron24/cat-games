@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createServer, type Server as HttpServer } from "node:http";
 
 import {
   parseClientMessage,
@@ -8,6 +9,10 @@ import {
 } from "@codechess/shared";
 import { Chess } from "chess.js";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
+
+import { LeaseManager } from "./activity/lease-manager.js";
+import { createApiHandler } from "./http/api.js";
+import { RoomStore } from "./rooms/room-store.js";
 
 export type ConnectedUser = {
   id: string;
@@ -28,7 +33,9 @@ export type Game = {
 };
 
 export type CodeChessServer = {
+  httpServer: HttpServer;
   webSocketServer: WebSocketServer;
+  roomStore: RoomStore;
   users: Map<string, ConnectedUser>;
   games: Map<string, Game>;
   gamesByPair: Map<string, string>;
@@ -38,6 +45,14 @@ export type CodeChessServer = {
 type ConnectionIdentity = {
   userId: string;
   role: PeerRole;
+  roomCode?: string;
+};
+
+export type CodeChessServerOptions = {
+  host?: string;
+  leaseMs?: number;
+  sweepMs?: number;
+  pingMs?: number;
 };
 
 function send(socket: WebSocket | null, message: ServerMessage): void {
@@ -75,11 +90,19 @@ function isAllowedForRole(message: ClientMessage, role: PeerRole): boolean {
   return role === "ui" ? message.type === "move" : message.type === "waiting" || message.type === "done";
 }
 
-export function createCodeChessServer(port = 8080): CodeChessServer {
+export function createCodeChessServer(port = 8080, options: CodeChessServerOptions = {}): CodeChessServer {
   const users = new Map<string, ConnectedUser>();
   const games = new Map<string, Game>();
   const gamesByPair = new Map<string, string>();
-  const webSocketServer = new WebSocketServer({ port });
+  const roomStore = new RoomStore();
+  let reconcilePublicRoom = (_roomCode: string): void => undefined;
+  const httpServer = createServer(createApiHandler({
+    roomStore,
+    leaseMs: options.leaseMs,
+    onActivityChanged: (roomCode) => reconcilePublicRoom(roomCode),
+  }));
+  const webSocketServer = new WebSocketServer({ server: httpServer });
+  httpServer.listen(port, options.host);
 
   function sendToUi(user: ConnectedUser | undefined, message: ServerMessage): void {
     if (user) {
@@ -100,6 +123,32 @@ export function createCodeChessServer(port = 8080): CodeChessServer {
     sendToUi(first, resumed);
     sendToUi(second, resumed);
     console.log(`Match resumed: ${game.playerWhite} vs ${game.playerBlack}`);
+  }
+
+  function createGame(first: ConnectedUser, second: ConnectedUser): Game {
+    const chess = new Chess();
+    const firstIsWhite = Math.random() < 0.5;
+    const white = firstIsWhite ? first : second;
+    const black = firstIsWhite ? second : first;
+    const game: Game = {
+      id: randomUUID(),
+      playerWhite: white.id,
+      playerBlack: black.id,
+      fen: chess.fen(),
+      pgn: chess.pgn(),
+      status: "ACTIVE",
+      currentTurn: "white",
+    };
+    games.set(game.id, game);
+    gamesByPair.set(pairKey(white.id, black.id), game.id);
+    white.currentGameId = game.id;
+    black.currentGameId = game.id;
+    sendToUi(white, { type: "match_found", gameId: game.id, color: "white", fen: game.fen });
+    sendToUi(black, { type: "match_found", gameId: game.id, color: "black", fen: game.fen });
+    const initialState: ServerMessage = { type: "game_state", fen: game.fen, turn: "white" };
+    sendToUi(white, initialState);
+    sendToUi(black, initialState);
+    return game;
   }
 
   function tryMatch(user: ConnectedUser): void {
@@ -150,46 +199,8 @@ export function createCodeChessServer(port = 8080): CodeChessServer {
       return;
     }
 
-    const chess = new Chess();
-    const userIsWhite = Math.random() < 0.5;
-    const white = userIsWhite ? user : opponent;
-    const black = userIsWhite ? opponent : user;
-    const game: Game = {
-      id: randomUUID(),
-      playerWhite: white.id,
-      playerBlack: black.id,
-      fen: chess.fen(),
-      pgn: chess.pgn(),
-      status: "ACTIVE",
-      currentTurn: "white",
-    };
-
-    games.set(game.id, game);
-    gamesByPair.set(pairKey(white.id, black.id), game.id);
-    white.currentGameId = game.id;
-    black.currentGameId = game.id;
-
-    sendToUi(white, {
-      type: "match_found",
-      gameId: game.id,
-      color: "white",
-      fen: game.fen,
-    });
-    sendToUi(black, {
-      type: "match_found",
-      gameId: game.id,
-      color: "black",
-      fen: game.fen,
-    });
-
-    const initialState: ServerMessage = {
-      type: "game_state",
-      fen: game.fen,
-      turn: game.currentTurn,
-    };
-    sendToUi(white, initialState);
-    sendToUi(black, initialState);
-    console.log(`Match created: ${white.id} (white) vs ${black.id} (black)`);
+    const game = createGame(user, opponent);
+    console.log(`Match created: ${game.playerWhite} (white) vs ${game.playerBlack} (black)`);
   }
 
   function handleMove(
@@ -230,6 +241,10 @@ export function createCodeChessServer(port = 8080): CodeChessServer {
     const isGameOver = chess.isGameOver();
     if (isGameOver) {
       game.status = "COMPLETED";
+      const room = roomStore.findPlayer(user.id)?.room;
+      if (room) {
+        roomStore.clearRoomActivities(room.code);
+      }
     }
 
     const update: ServerMessage = isGameOver
@@ -269,6 +284,93 @@ export function createCodeChessServer(port = 8080): CodeChessServer {
   function handleDone(user: ConnectedUser): void {
     user.waitingForAgent = false;
     pauseGame(user, true);
+  }
+
+  function publicUser(playerId: string): ConnectedUser {
+    const existing = users.get(playerId);
+    if (existing) return existing;
+    const created: ConnectedUser = {
+      id: playerId,
+      uiSocket: null,
+      agentSocket: null,
+      waitingForAgent: false,
+      currentGameId: null,
+    };
+    users.set(playerId, created);
+    return created;
+  }
+
+  reconcilePublicRoom = (roomCode): void => {
+    const room = roomStore.getRoom(roomCode);
+    if (!room) return;
+    const players = room.players.map((seat) => publicUser(seat.id));
+    const bothSeated = players.length === 2;
+    const bothActive = bothSeated && room.players.every((seat) => roomStore.isActive(seat.id));
+    const game = room.currentGameId ? games.get(room.currentGameId) : undefined;
+
+    if (!bothActive) {
+      if (game?.status === "ACTIVE") {
+        game.status = "PAUSED";
+        for (const player of players) sendToUi(player, { type: "game_paused" });
+      } else if (!game) {
+        for (const player of players) sendToUi(player, { type: "waiting_for_player" });
+      }
+      return;
+    }
+
+    if (game?.status === "ACTIVE") return;
+    if (game?.status === "PAUSED") {
+      resumeGame(game, players[0]!, players[1]!);
+      return;
+    }
+
+    const nextGame = createGame(players[0]!, players[1]!);
+    room.currentGameId = nextGame.id;
+  };
+
+  function attachRoomSocket(
+    socket: WebSocket,
+    message: Extract<ClientMessage, { type: "room_hello" }>,
+  ): ConnectionIdentity | null {
+    const authenticated = roomStore.authenticate(message.playerToken);
+    if (!authenticated) {
+      send(socket, { type: "error", reason: "Invalid player token" });
+      socket.close(4001, "Unauthorized");
+      return null;
+    }
+    const user = publicUser(authenticated.player.id);
+    const previousSocket = user.uiSocket;
+    user.uiSocket = socket;
+    user.currentGameId = authenticated.room.currentGameId;
+    if (previousSocket && previousSocket !== socket) {
+      previousSocket.close(4000, "Replaced by a newer connection");
+    }
+    send(socket, {
+      type: "room_hello_ack",
+      roomCode: authenticated.room.code,
+      playerId: authenticated.player.id,
+    });
+
+    const game = user.currentGameId ? games.get(user.currentGameId) : undefined;
+    if (game) {
+      send(socket, {
+        type: "match_found",
+        gameId: game.id,
+        color: game.playerWhite === user.id ? "white" : "black",
+        fen: game.fen,
+      });
+      if (game.status === "ACTIVE") {
+        send(socket, { type: "game_state", fen: game.fen, turn: game.currentTurn });
+      } else if (game.status === "PAUSED") {
+        send(socket, { type: "game_paused" });
+      } else {
+        send(socket, { type: "game_completed", fen: game.fen, pgn: game.pgn });
+      }
+    } else {
+      send(socket, { type: "waiting_for_player" });
+    }
+    reconcilePublicRoom(authenticated.room.code);
+    return { userId: user.id, role: "ui", roomCode: authenticated.room.code };
   }
 
   function attachSocket(
@@ -325,6 +427,15 @@ export function createCodeChessServer(port = 8080): CodeChessServer {
         return;
       }
 
+      if (message.type === "room_hello") {
+        if (identity) {
+          send(socket, { type: "error", reason: "Socket is already registered" });
+          return;
+        }
+        identity = attachRoomSocket(socket, message);
+        return;
+      }
+
       if (!identity) {
         send(socket, { type: "error", reason: "Send hello before other messages" });
         return;
@@ -336,7 +447,12 @@ export function createCodeChessServer(port = 8080): CodeChessServer {
         return;
       }
 
-      if (!isAllowedForRole(message, identity.role)) {
+      if (identity.roomCode && message.type !== "move" && message.type !== "disconnect") {
+        send(socket, { type: "error", reason: `${message.type} is not allowed for a room terminal` });
+        return;
+      }
+
+      if (!identity.roomCode && !isAllowedForRole(message, identity.role)) {
         send(socket, {
           type: "error",
           reason: `${message.type} is not allowed for the ${identity.role} role`,
@@ -375,7 +491,9 @@ export function createCodeChessServer(port = 8080): CodeChessServer {
       }
 
       user[field] = null;
-      if (identity.role === "agent") {
+      if (identity.roomCode) {
+        return;
+      } else if (identity.role === "agent") {
         user.waitingForAgent = false;
         pauseGame(user, false);
       } else {
@@ -389,17 +507,39 @@ export function createCodeChessServer(port = 8080): CodeChessServer {
     });
   });
 
+  const leaseManager = new LeaseManager(
+    roomStore,
+    (roomCodes) => {
+      for (const roomCode of roomCodes) reconcilePublicRoom(roomCode);
+    },
+    options.sweepMs,
+  );
+
+  const socketPing = setInterval(() => {
+    for (const client of webSocketServer.clients) {
+      if (client.readyState === WebSocket.OPEN) client.ping();
+    }
+  }, options.pingMs ?? 30_000);
+  socketPing.unref();
+
   return {
+    httpServer,
     webSocketServer,
+    roomStore,
     users,
     games,
     gamesByPair,
     close: () =>
       new Promise((resolve, reject) => {
+        leaseManager.close();
+        clearInterval(socketPing);
         for (const client of webSocketServer.clients) {
           client.terminate();
         }
-        webSocketServer.close((error) => (error ? reject(error) : resolve()));
+        webSocketServer.close((webSocketError) => {
+          if (webSocketError) return reject(webSocketError);
+          httpServer.close((httpError) => (httpError ? reject(httpError) : resolve()));
+        });
       }),
   };
 }
