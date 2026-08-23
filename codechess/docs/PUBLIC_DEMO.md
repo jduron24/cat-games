@@ -19,14 +19,18 @@ wss://codechess-hackathon.onrender.com
 
 The CLI performs this conversion automatically.
 
-## Install the tagged companion
+## Install the hackathon companion
 
 Install Node.js 22.13 or later, then install the release tag:
 
 ```bash
-npm install --global github:jduron24/cat-games#codechess-v0.1.0
+npm install --global "https://github.com/jduron24/cat-games/archive/refs/heads/codex/hackathon-public-terminal.tar.gz"
 codechess --help
 ```
+
+Use the archive URL rather than npm's `github:` Git dependency shorthand. npm
+can leave global workspace Git installs linked to its temporary clone, which
+breaks the executable after installation.
 
 ## Configure prompt hooks
 

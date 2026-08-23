@@ -31,7 +31,7 @@ Deploy the included `render.yaml` as one Render service, then install the tagged
 companion on each player's machine:
 
 ```bash
-npm install --global github:jduron24/cat-games#codechess-v0.1.0
+npm install --global "https://github.com/jduron24/cat-games/archive/refs/heads/codex/hackathon-public-terminal.tar.gz"
 codechess setup --server https://YOUR-SERVICE.onrender.com
 ```
 
