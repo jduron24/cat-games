@@ -4,20 +4,32 @@ Owner of everything involving communication between the two terminals. The serve
 
 Protocol contract: [`../shared/PROTOCOL.md`](../shared/PROTOCOL.md).
 
+## Run the current server
+
+From the `codechess` directory:
+
+```bash
+npm install
+npm run start:server
+```
+
+The server listens on `ws://localhost:8080` by default. During development, use
+`npm run dev:server` to restart it automatically after source changes.
+
 ## Must have
 
-- [ ] WebSocket server (`ws`)
-- [ ] Track connected users: `Map<userId, User>`
-- [ ] Track waiting users (eligible when `connected && waitingForAgent`)
-- [ ] Track games: `Map<gameId, Game>`
-- [ ] Handle `hello` → register user, attach socket
-- [ ] Handle `waiting` → `user.waitingForAgent = true`, run matchmaking check
-- [ ] Handle `done` → `user.waitingForAgent = false`, pause any active game
-- [ ] Handle `move` → validate turn + legality via `chess.js`, update FEN, broadcast
-- [ ] Matchmaking: two waiting users with no existing pair → find existing game for this pair, else create new game → status `ACTIVE`
-- [ ] Pause: either player sends `done` → status `PAUSED`, broadcast `game_paused` to both, `opponent_agent_finished` to the other player specifically
-- [ ] Resume: same two players both become `waitingForAgent = true` again with a stored game for the pair → load stored FEN/PGN, status `ACTIVE`, broadcast `game_resumed`
-- [ ] In-memory persistence: `const games = new Map()`, keyed by `gameId`, keeps state for the life of the server process
+- [x] WebSocket server (`ws`)
+- [x] Track connected users: `Map<userId, User>`
+- [x] Track waiting users (eligible when `connected && waitingForAgent`)
+- [x] Track games: `Map<gameId, Game>`
+- [x] Handle `hello` → register user, attach socket
+- [x] Handle `waiting` → `user.waitingForAgent = true`, run matchmaking check
+- [x] Handle `done` → `user.waitingForAgent = false`, pause any active game
+- [x] Handle `move` → validate turn + legality via `chess.js`, update FEN, broadcast
+- [x] Matchmaking: two waiting users with no existing pair → find existing game for this pair, else create new game → status `ACTIVE`
+- [x] Pause: either player sends `done` → status `PAUSED`, broadcast `game_paused` to both, `opponent_agent_finished` to the other player specifically
+- [x] Resume: same two players both become `waitingForAgent = true` again with a stored game for the pair → load stored FEN/PGN, status `ACTIVE`, broadcast `game_resumed`
+- [x] In-memory persistence: `const games = new Map()`, keyed by `gameId`, keeps state for the life of the server process
 
 ## Stretch
 
