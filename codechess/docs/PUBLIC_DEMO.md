@@ -39,6 +39,7 @@ codechess doctor
 
 Setup adds CodeChess entries to the user's existing Codex hooks. It preserves
 unrelated hooks. CodeChess hook failures do not block prompts.
+Local configuration is stored in `~/.codechess/config.json` with mode `0600`.
 
 ## Start a room
 
@@ -70,6 +71,11 @@ codechess play
 ```
 
 If the server restarted, Alice creates a new room and Bob joins the new code.
+
+If `codechess doctor` cannot reach the server, verify the Render service is
+awake and that the local network permits outbound HTTPS and WebSockets. A proxy
+that blocks WebSocket upgrades will allow health checks but prevent the board
+from connecting.
 
 Remove only the CodeChess hooks with:
 
