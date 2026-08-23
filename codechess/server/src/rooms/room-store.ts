@@ -98,6 +98,10 @@ export class RoomStore {
     }
     if (action === "stop") {
       authenticated.player.activities.delete(activityId);
+    } else if (action === "heartbeat") {
+      if (authenticated.player.activities.has(activityId)) {
+        authenticated.player.activities.set(activityId, this.now() + leaseMs);
+      }
     } else {
       authenticated.player.activities.set(activityId, this.now() + leaseMs);
     }

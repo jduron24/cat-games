@@ -52,3 +52,16 @@ test("room store tracks overlapping activity leases idempotently", () => {
   assert.deepEqual(store.expireActivities(), [credentials.playerId]);
   assert.equal(store.isActive(credentials.playerId), false);
 });
+
+test("room store heartbeat refreshes an existing activity but cannot start one", () => {
+  let now = 1_000;
+  const store = new RoomStore({ now: () => now });
+  const credentials = store.create("Alice");
+
+  assert.equal(store.updateActivity(credentials.playerToken, "task", "heartbeat", 90_000), false);
+  store.updateActivity(credentials.playerToken, "task", "start", 90_000);
+  now = 2_000;
+  assert.equal(store.updateActivity(credentials.playerToken, "task", "heartbeat", 90_000), true);
+  now = 91_500;
+  assert.equal(store.isActive(credentials.playerId), true);
+});
