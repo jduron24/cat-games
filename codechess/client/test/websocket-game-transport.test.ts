@@ -24,23 +24,41 @@ class FakeSocket extends EventEmitter implements ClientSocket {
 }
 
 describe("WebSocketGameTransport", () => {
-  it("identifies the UI and emits standardized moves without claiming agent waiting state", async () => {
+  it("identifies the UI and resolves only after the server acknowledges the handshake", async () => {
     const socket = new FakeSocket();
+    const notices: string[] = [];
     const transport = new WebSocketGameTransport({
       url: "ws://localhost:8080",
       userId: "ui-test",
       socketFactory: () => socket,
     });
+    transport.onNotice((notice) => notices.push(notice.message));
 
     const connecting = transport.connect();
+    let connected = false;
+    void connecting.then(() => {
+      connected = true;
+    });
     socket.emit("open");
+    await Promise.resolve();
+
+    expect(connected).toBe(false);
+    expect(socket.sent.map((message) => JSON.parse(message))).toEqual([
+      { type: "hello", userId: "ui-test", role: "ui" },
+    ]);
+
+    socket.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "hello_ack", userId: "ui-test", role: "ui" })),
+    );
     await connecting;
     transport.sendMove("e2", "e4");
 
     expect(socket.sent.map((message) => JSON.parse(message))).toEqual([
-      { type: "hello", userId: "ui-test" },
+      { type: "hello", userId: "ui-test", role: "ui" },
       { type: "move", from: "e2", to: "e4" },
     ]);
+    expect(notices).toEqual([]);
   });
 
   it("translates game state, pause, and rejection protocol messages", async () => {
@@ -57,6 +75,10 @@ describe("WebSocketGameTransport", () => {
 
     const connecting = transport.connect();
     socket.emit("open");
+    socket.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "hello_ack", userId: "ui-test", role: "ui" })),
+    );
     await connecting;
 
     socket.emit(
@@ -104,6 +126,10 @@ describe("WebSocketGameTransport", () => {
 
     const connecting = transport.connect();
     socket.emit("open");
+    socket.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "hello_ack", userId: "ui-test", role: "ui" })),
+    );
     await connecting;
 
     const invalidMessages = [
@@ -125,5 +151,32 @@ describe("WebSocketGameTransport", () => {
     expect(notices.every((notice) => notice === "Server sent an invalid protocol message.")).toBe(
       true,
     );
+  });
+
+  it("surfaces server protocol errors without disconnecting", async () => {
+    const socket = new FakeSocket();
+    const notices: string[] = [];
+    const transport = new WebSocketGameTransport({
+      url: "ws://localhost:8080",
+      userId: "ui-test",
+      socketFactory: () => socket,
+    });
+    transport.onNotice((notice) => notices.push(notice.message));
+
+    const connecting = transport.connect();
+    socket.emit("open");
+    socket.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "hello_ack", userId: "ui-test", role: "ui" })),
+    );
+    await connecting;
+
+    socket.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "error", reason: "UI role cannot send waiting" })),
+    );
+
+    expect(notices.at(-1)).toBe("Server error: UI role cannot send waiting");
+    expect(socket.closed).toBe(false);
   });
 });

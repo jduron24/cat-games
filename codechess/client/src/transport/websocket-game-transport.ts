@@ -1,3 +1,4 @@
+import { parseServerMessage, type ServerMessage } from "@codechess/shared";
 import WebSocket from "ws";
 
 import { parseFenBoard } from "../fen.js";
@@ -17,16 +18,6 @@ export type WebSocketGameTransportOptions = {
   socketFactory?: (url: string) => ClientSocket;
 };
 
-type ServerMessage =
-  | { type: "waiting_for_player" }
-  | { type: "match_found"; gameId: string; color: PlayerColor; fen: string }
-  | { type: "game_state"; fen: string; turn: PlayerColor }
-  | { type: "move_accepted"; fen: string; turn: PlayerColor }
-  | { type: "move_rejected"; reason: string }
-  | { type: "game_paused" }
-  | { type: "opponent_agent_finished" }
-  | { type: "game_resumed"; fen: string; pgn: string };
-
 export class WebSocketGameTransport implements GameTransport {
   private readonly url: string;
   private readonly userId: string;
@@ -34,6 +25,7 @@ export class WebSocketGameTransport implements GameTransport {
   private readonly stateHandlers = new Set<(state: GameState) => void>();
   private readonly noticeHandlers = new Set<(notice: TransportNotice) => void>();
   private socket: ClientSocket | null = null;
+  private connection: Promise<void> | null = null;
   private currentState: GameState | null = null;
 
   constructor(options: WebSocketGameTransportOptions) {
@@ -44,36 +36,48 @@ export class WebSocketGameTransport implements GameTransport {
   }
 
   connect(): Promise<void> {
-    if (this.socket) {
-      return Promise.resolve();
+    if (this.connection) {
+      return this.connection;
     }
 
     const socket = this.socketFactory(this.url);
     this.socket = socket;
 
-    return new Promise((resolve, reject) => {
-      let opened = false;
+    this.connection = new Promise((resolve, reject) => {
+      let acknowledged = false;
 
       socket.on("open", () => {
-        opened = true;
-        this.send({ type: "hello", userId: this.userId });
-        resolve();
+        this.send({ type: "hello", userId: this.userId, role: "ui" });
       });
-      socket.on("message", (data) => this.handleMessage(data));
+      socket.on("message", (data) => {
+        const message = this.handleMessage(data);
+        if (
+          message?.type === "hello_ack" &&
+          message.userId === this.userId &&
+          message.role === "ui"
+        ) {
+          acknowledged = true;
+          resolve();
+        } else if (message?.type === "error" && !acknowledged) {
+          reject(new Error(message.reason));
+        }
+      });
       socket.on("error", (error) => {
         const detail = error instanceof Error ? error.message : String(error);
         this.emitNotice("error", `WebSocket error: ${detail}`);
-        if (!opened) {
+        if (!acknowledged) {
           reject(error);
         }
       });
       socket.on("close", () => {
         this.emitNotice("info", "Disconnected from the CodeChess server.");
-        if (!opened) {
-          reject(new Error("WebSocket closed before the connection was established."));
+        if (!acknowledged) {
+          reject(new Error("WebSocket closed before the handshake was acknowledged."));
         }
       });
     });
+
+    return this.connection;
   }
 
   sendMove(from: Square, to: Square): void {
@@ -91,6 +95,7 @@ export class WebSocketGameTransport implements GameTransport {
   disconnect(): void {
     const socket = this.socket;
     this.socket = null;
+    this.connection = null;
 
     if (!socket) {
       return;
@@ -110,23 +115,28 @@ export class WebSocketGameTransport implements GameTransport {
     this.socket.send(JSON.stringify(message));
   }
 
-  private handleMessage(data: unknown): void {
+  private handleMessage(data: unknown): ServerMessage | null {
     let parsed: unknown;
     try {
       const text = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
       parsed = JSON.parse(text);
     } catch {
       this.emitNotice("error", "Server sent an unreadable message.");
-      return;
+      return null;
     }
 
     const message = parseServerMessage(parsed);
-    if (!message) {
+    if (!message || ("fen" in message && !isFen(message.fen))) {
       this.emitNotice("error", "Server sent an invalid protocol message.");
-      return;
+      return null;
     }
 
     switch (message.type) {
+      case "hello_ack":
+        break;
+      case "error":
+        this.emitNotice("error", `Server error: ${message.reason}`);
+        break;
       case "waiting_for_player":
         this.emitNotice("info", "Waiting for another developer…");
         break;
@@ -164,6 +174,7 @@ export class WebSocketGameTransport implements GameTransport {
         this.emitNotice("info", "Game resumed.");
         break;
     }
+    return message;
   }
 
   private updateState(update: Partial<GameState>): void {
@@ -190,46 +201,6 @@ export class WebSocketGameTransport implements GameTransport {
 
 function turnFromFen(fen: string): PlayerColor {
   return fen.trim().split(/\s+/)[1] === "b" ? "black" : "white";
-}
-
-function parseServerMessage(value: unknown): ServerMessage | null {
-  if (!isObject(value) || typeof value.type !== "string") {
-    return null;
-  }
-
-  switch (value.type) {
-    case "waiting_for_player":
-    case "game_paused":
-    case "opponent_agent_finished":
-      return { type: value.type };
-    case "match_found":
-      return typeof value.gameId === "string" && isPlayerColor(value.color) && isFen(value.fen)
-        ? { type: value.type, gameId: value.gameId, color: value.color, fen: value.fen }
-        : null;
-    case "game_state":
-    case "move_accepted":
-      return isFen(value.fen) && isPlayerColor(value.turn)
-        ? { type: value.type, fen: value.fen, turn: value.turn }
-        : null;
-    case "move_rejected":
-      return typeof value.reason === "string"
-        ? { type: value.type, reason: value.reason }
-        : null;
-    case "game_resumed":
-      return isFen(value.fen) && typeof value.pgn === "string"
-        ? { type: value.type, fen: value.fen, pgn: value.pgn }
-        : null;
-    default:
-      return null;
-  }
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isPlayerColor(value: unknown): value is PlayerColor {
-  return value === "white" || value === "black";
 }
 
 function isFen(value: unknown): value is string {
