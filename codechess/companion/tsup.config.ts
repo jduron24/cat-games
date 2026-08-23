@@ -6,6 +6,7 @@ export default defineConfig({
   platform: "node",
   target: "node22",
   bundle: true,
+  splitting: false,
   clean: true,
   noExternal: [/^@codechess\//],
   external: ["chess.js", "terminal-kit", "ws"],
