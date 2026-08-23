@@ -1,56 +1,42 @@
-# 4-Hour Execution Plan
+# Integrated Execution Status
 
-## 0:00–0:20 — All three together
+The original client, server, and agent tracks now run as one npm workspace.
+Development follows this dependency order:
 
-- Set up repository (`/client`, `/server`, `/agent`, `/shared` — already scaffolded here).
-- Install dependencies.
-- Agree on the WebSocket protocol: [`../shared/PROTOCOL.md`](../shared/PROTOCOL.md). Lock it before splitting up.
-- Make sure everyone can run the project.
+1. One root install and one lockfile.
+2. One runtime-validated shared protocol.
+3. Paired UI and agent sockets per user.
+4. Real UI and agent handshakes.
+5. A four-socket integration test.
+6. Complete PGN, promotion, and terminal chess state.
+7. Cursor SDK lifecycle and deterministic manual mode.
+8. Five-process demo rehearsal.
 
-## 0:20–1:30 — Work independently
+## Automated acceptance
 
-**Person 1 (client)** — target: terminal board + keyboard movement + select/move. See [`../client/README.md`](../client/README.md).
+Run from the repository root:
 
-**Person 2 (server)** — target: two terminals + WebSocket server + matchmaking + move syncing. See [`../server/README.md`](../server/README.md).
-
-**Person 3 (agent)** — target: Codex task + detect agent start + detect agent completion. See [`../agent/README.md`](../agent/README.md).
-
-## 1:30–2:15 — Integrate Person 1 + Person 2
-
-Forget Codex temporarily. Open two terminals. Both should see the same game.
-
-Verify:
-
-```
-A moves → B updates
-B moves → A updates
+```bash
+npm ci
+npm run check
 ```
 
-**This is the most important milestone.** If this isn't solid, don't move on.
+The server integration suite opens two real UI transports and two real agent
+transports. It verifies match, move, pause, and saved-state resume without wire
+mocks. Package tests also cover malformed messages, socket ownership, PGN
+history, promotion, terminal chess states, CLI configuration, and SDK lifecycle
+cleanup.
 
-## 2:15–3:00 — Integrate Person 3
+## Manual acceptance
 
-Target full flow:
+Follow [DEMO_SCRIPT.md](DEMO_SCRIPT.md). Stop feature work after the complete
+five-process flow passes twice.
 
-```
-Alice prompts agent → Alice waiting
-Bob prompts agent   → Bob waiting
-Both matched        → chess appears
-They play
-Bob's agent finishes → chess pauses → Bob gets AI response
-```
+The demo does not require an API key because manual mode drives the same
+`waiting` and `done` transport. A credentialed SDK check additionally requires
+`CURSOR_API_KEY`.
 
-## 3:00–3:30 — Polish
+## Deferred work
 
-Priorities, in order:
-
-1. Mouse click support
-2. Agent activity text
-3. Better chessboard rendering
-4. Clear waiting / matched / paused states
-
-Do not add new infrastructure during this window.
-
-## 3:30–4:00 — Demo prep
-
-Stop feature development. Prepare the demo. Rehearse the exact sequence in [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md) multiple times.
+Authentication, reconnect persistence, databases, ratings, chat, spectators,
+chess clocks, and additional game modes remain outside this integration.

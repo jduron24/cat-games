@@ -16,7 +16,10 @@ export type AgentCliOptions = {
   prompt: string;
   wsUrl?: string;
   userId?: string;
+  manualDelayMs: number;
 };
+
+export const DEFAULT_MANUAL_DELAY_MS = 800;
 
 function readValue(args: string[], index: number, option: string): string {
   const value = args[index + 1];
@@ -33,6 +36,7 @@ export function parseCliOptions(args: string[], environment: Environment): Agent
     prompt: "",
     wsUrl: environment.CODECHESS_WS_URL,
     userId: environment.CODECHESS_USER_ID,
+    manualDelayMs: DEFAULT_MANUAL_DELAY_MS,
   };
   const positional: string[] = [];
 
@@ -64,6 +68,15 @@ export function parseCliOptions(args: string[], environment: Environment): Agent
         options.userId = readValue(args, index, "--user-id");
         index += 1;
         break;
+      case "--manual-delay-ms": {
+        const value = Number(readValue(args, index, "--manual-delay-ms"));
+        if (!Number.isSafeInteger(value) || value < 0) {
+          throw new Error("--manual-delay-ms must be a non-negative integer.");
+        }
+        options.manualDelayMs = value;
+        index += 1;
+        break;
+      }
       default:
         if (argument.startsWith("--")) {
           throw new Error(`Unknown option: ${argument}`);
@@ -93,6 +106,7 @@ Options:
   --mode <mode>         codex (default) or manual
   --ws-url <websocket>  CodeChess server URL
   --user-id <id>        Identity shared with the matching terminal UI
+  --manual-delay-ms <n> Total manual run duration in milliseconds (default: 800)
   -h, --help            Show this help
 
 Environment:
@@ -142,7 +156,9 @@ export async function main(
 
   try {
     if (options.mode === "manual") {
-      await runManualLifecycle(options.prompt, sink);
+      await runManualLifecycle(options.prompt, sink, {
+        delayMs: options.manualDelayMs,
+      });
     } else {
       await runCodexLifecycle({ prompt: options.prompt, sink });
     }

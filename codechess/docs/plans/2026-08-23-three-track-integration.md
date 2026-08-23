@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the TUI and agent runner as separate processes. Both identify the same `userId`, but each opens a role-specific WebSocket (`ui` or `agent`); the server stores both sockets on one user record, accepts moves from the UI socket, accepts lifecycle events from the agent socket, and sends game state to the UI socket. Put protocol types and runtime validators in a shared workspace package so all three tracks compile against one contract.
 
-**Tech Stack:** TypeScript, npm workspaces, Node.js 20+, `ws`, `chess.js`, Node test runner/Vitest, Codex TypeScript SDK (`@cursor/sdk`) for the final agent adapter.
+**Tech Stack:** TypeScript, npm workspaces, Node.js 22.13+, `ws`, `chess.js`, Node test runner/Vitest, Codex TypeScript SDK (`@cursor/sdk`) for the final agent adapter.
 
 ---
 
