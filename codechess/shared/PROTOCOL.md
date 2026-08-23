@@ -12,7 +12,7 @@ The server only ever transmits game-related information — never shell commands
 
 ```ts
 type ClientMessage =
-    | { type: "hello"; userId: string }
+    | { type: "hello"; userId: string; role: "ui" | "agent" }
     | { type: "waiting" }
     | { type: "done" }
     | { type: "move"; from: string; to: string }
@@ -21,7 +21,7 @@ type ClientMessage =
 
 | Message | Sent when | Sent by |
 |---|---|---|
-| `hello` | on connect, to identify the user | client (Person 1) |
+| `hello` | on connect, to identify the logical user and socket role | client and agent |
 | `waiting` | agent's `turn.started` fires | agent integration (Person 3) |
 | `done` | agent's `turn.completed` fires | agent integration (Person 3) |
 | `move` | user submits a move (keyboard Enter/Enter or click/click) | client (Person 1) |
@@ -29,10 +29,16 @@ type ClientMessage =
 
 `from` / `to` are algebraic squares, e.g. `"e2"`, `"e4"`.
 
+The TUI and agent runner are separate processes. They connect with the same
+`userId` and different roles. The `ui` role may send moves; the `agent` role
+may send lifecycle messages (`waiting` and `done`).
+
 ## Server → Client
 
 ```ts
 type ServerMessage =
+    | { type: "hello_ack"; userId: string; role: "ui" | "agent" }
+    | { type: "error"; reason: string }
     | { type: "waiting_for_player" }
     | {
         type: "match_found"
@@ -46,6 +52,7 @@ type ServerMessage =
         turn: "white" | "black"
       }
     | { type: "move_accepted"; fen: string; turn: "white" | "black" }
+    | { type: "game_completed"; fen: string; pgn: string }
     | { type: "move_rejected"; reason: string }
     | { type: "game_paused" }
     | { type: "opponent_agent_finished" }
@@ -54,10 +61,13 @@ type ServerMessage =
 
 | Message | Sent when | Consumed by |
 |---|---|---|
+| `hello_ack` | a UI or agent socket has been attached to a logical user | connecting socket |
+| `error` | a message is malformed or not allowed for the socket role | sending socket |
 | `waiting_for_player` | user is waiting, no opponent yet | client UI: show "Waiting for another developer..." |
 | `match_found` | matchmaking paired two waiting users | client UI: mount the board, note assigned color |
 | `game_state` | full state sync (e.g. right after match, or on reconnect) | client UI: render board |
 | `move_accepted` | a submitted move was legal and applied | client UI: redraw board, flip turn indicator |
+| `game_completed` | an accepted move ended the game | client UI: load the final position and freeze the board as completed |
 | `move_rejected` | a submitted move was illegal | client UI: show reason, keep selection cleared |
 | `game_paused` | either player's agent finished | client UI: freeze board, show paused banner |
 | `opponent_agent_finished` | specifically the *other* player's agent finished (distinguishes from your own `done`) | client UI: "Opponent's agent finished. Game paused." |
@@ -82,25 +92,30 @@ interface Game {
 ```ts
 interface User {
     id: string
-    socket: WebSocket
+    uiSocket: WebSocket | null
+    agentSocket: WebSocket | null
     waitingForAgent: boolean
     currentGameId: string | null
 }
 ```
 
-A user is matchmaking-eligible when `connected === true && waitingForAgent === true`.
+A user is matchmaking-eligible when its UI socket is connected and
+`waitingForAgent === true`.
 
 ## Sequence reference
 
 **Match + move:**
 
 ```
-A: hello        →
-A: waiting      →                    (no opponent yet) ← waiting_for_player
-B: hello        →
-B: waiting      →                    ← match_found (both A and B)
+A UI: hello(role=ui)       →
+A agent: hello(role=agent) →
+A agent: waiting           →          (no opponent yet) ← waiting_for_player (A UI)
+B UI: hello(role=ui)       →
+B agent: hello(role=agent) →
+B agent: waiting           →          ← match_found (both UIs)
 A: move e2-e4   →                    ← move_accepted (both A and B)
 B: move e7-e5   →                    ← move_accepted (both A and B)
+... terminal move ...                ← game_completed (both A and B)
 ```
 
 **Pause + resume:**

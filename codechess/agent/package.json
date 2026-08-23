@@ -1,0 +1,21 @@
+{
+  "name": "@codechess/agent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --import tsx src/cli.ts",
+    "test": "tsx --test test/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@codechess/shared": "0.1.0",
+    "@cursor/sdk": "^1.0.28",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

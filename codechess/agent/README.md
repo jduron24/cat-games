@@ -1,49 +1,41 @@
-# Person 3: Codex Integration + Orchestration
+# CodeChess Agent
 
-Owner of everything connecting CodeChess to the AI agent lifecycle.
+The agent process sends `waiting` before a run starts and `done` after every
+terminal result. Use the same user ID as its matching terminal UI.
 
-Protocol contract: [`../shared/PROTOCOL.md`](../shared/PROTOCOL.md). Your job is to translate Codex lifecycle events into the two client messages the server actually cares about: `waiting` and `done`.
+Run all commands from the repository root. The Cursor SDK requires Node.js
+22.13 or later.
 
-## Must have
+## Manual mode
 
-- [ ] `codechess "<prompt>"` command that starts an AI task
-- [ ] Run Codex against the given prompt
-- [ ] Observe Codex lifecycle events (`turn.started`, item events, `turn.completed`)
-- [ ] On `turn.started` → send `{ type: "waiting" }` to the game server
-- [ ] On `turn.completed` → send `{ type: "done" }` to the game server
-- [ ] Expose basic agent activity to the UI (e.g. `Codex: ● Running tests`)
-- [ ] On completion: notify game server, pause/hide game, restore normal terminal behavior, show the Codex result
+Manual mode needs no API key. Use `--manual-delay-ms` to keep an agent waiting
+long enough for a multiplayer rehearsal:
 
-## Stretch
-
-- [ ] Multiple/more granular agent activity descriptions (per item event, e.g. "Editing src/auth.ts")
-- [ ] Better transition animations between chess ↔ AI result
-- [ ] Error/retry states surfaced to the UI
-
-## Lifecycle mapping
-
-```
-turn.started      → USER_WAITING = true   → send "waiting"
-  (item events)    → optional: forward activity text to UI, no protocol message needed
-turn.completed    → USER_WAITING = false  → send "done"
+```bash
+npm run agent -- \
+  --mode manual \
+  --prompt "demo turn" \
+  --manual-delay-ms 20000 \
+  --ws-url ws://localhost:8080 \
+  --user-id alice
 ```
 
-## Completion sequence (must happen in this order)
+The delay defaults to 800 milliseconds and accepts any non-negative integer.
 
+## Cursor SDK mode
+
+Set a Cursor API key, then run a local SDK agent against the current checkout:
+
+```bash
+export CURSOR_API_KEY="your-key"
+npm run agent -- \
+  --prompt "build the feature" \
+  --ws-url ws://localhost:8080 \
+  --user-id alice
 ```
-1. Codex turn.completed fires
-2. send { type: "done" } to game server
-3. pause/hide the chess board in the UI
-4. restore normal terminal output
-5. render the Codex result to the user
-```
 
-Order matters: don't show the AI result before the `done` message is sent — the whole point is the opponent's terminal transitions out of "active game" promptly.
+The runner uses `@cursor/sdk` with model `auto` and an explicit local working
+directory. It reports generic activity labels to stderr, prints the final result
+locally, and never sends prompt or source text through the game server.
 
-## Interface
-
-You call into Person 1's client layer to mount/unmount the board and into Person 2's server via the same WebSocket the client uses — in the MVP this can be a single process/socket shared with the terminal UI rather than a separate connection, whichever is simpler to wire in the time available.
-
-## Standalone test target (before integrating with the server)
-
-Fake `turn.started` / `turn.completed` with a manual trigger (keypress or timer) and confirm the `waiting`/`done` messages fire in the right order and the activity text renders, before wiring in real Codex SDK events.
+`CODECHESS_WS_URL` and `CODECHESS_USER_ID` can replace their matching flags.

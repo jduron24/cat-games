@@ -1,83 +1,80 @@
-# Hackathon Demo Script
+# CodeChess Five-Process Demo
 
-Use two terminals side-by-side. Rehearse this exact sequence before presenting.
+Run every command from the repository root. Use five terminals or terminal
+panes. Keep the server running for the entire rehearsal so the paused game stays
+in memory.
 
-## Step 1
-
-Both terminals idle. No chess.
-
-## Step 2
-
-Alice runs:
+## 1. Start the server
 
 ```bash
-codechess "inspect this repository and run the test suite"
+npm run server
 ```
 
-Show:
+Wait for:
 
 ```text
-Codex working...
-Waiting for another developer...
+CodeChess WebSocket server listening on ws://localhost:8080
 ```
 
-No chess yet.
-
-## Step 3
-
-Bob runs:
+## 2. Start Alice's UI
 
 ```bash
-codechess "find a bug and propose a fix"
+npm run ui -- --url ws://localhost:8080 --user-id alice
 ```
 
-Now: Alice waiting, Bob waiting. Chess automatically appears in both terminals.
+## 3. Start Bob's UI
 
-## Step 4
-
-Alice clicks `e2` then `e4`. Bob's board instantly updates.
-
-## Step 5
-
-Bob plays `e7 → e5`. Alice instantly sees it.
-
-## Step 6
-
-Continue playing while the terminals display agent activity, e.g. `Codex: ● Running tests`.
-
-## Step 7
-
-Bob's agent finishes first.
-
-Bob immediately gets:
-
-```text
-✓ Codex completed
+```bash
+npm run ui -- --url ws://localhost:8080 --user-id bob
 ```
 
-Alice gets:
+## 4. Start Alice's manual agent
 
-```text
-Opponent's agent finished.
-Game paused.
+```bash
+npm run agent -- \
+  --mode manual \
+  --prompt "Alice demo turn" \
+  --manual-delay-ms 30000 \
+  --ws-url ws://localhost:8080 \
+  --user-id alice
 ```
 
-## Step 8
+## 5. Start Bob's manual agent
 
-Later, both run another prompt. CodeChess detects their previous game. Instead of starting over:
-
-```text
-Game resumed
+```bash
+npm run agent -- \
+  --mode manual \
+  --prompt "Bob demo turn" \
+  --manual-delay-ms 15000 \
+  --ws-url ws://localhost:8080 \
+  --user-id bob
 ```
 
-with `1. e4 e5` still on the board.
+Both UIs should match with opposite colors. The developer assigned White plays
+`e2` to `e4`; both boards should show the same position and Black to move.
 
----
+After 15 seconds, Bob's agent sends `done`. Both boards pause, and Alice sees
+that the opponent's agent finished.
 
-## Rehearsal checklist
+## Resume the saved game
 
-- [ ] Run the full sequence at least twice before presenting.
-- [ ] Confirm timing: don't let "waiting for another developer" hang too long on stage — pre-arrange prompts so both agents start within a few seconds of each other.
-- [ ] Have a fallback prompt ready for each developer in case the first one resolves too fast (Codex finishing before the match happens ruins the demo).
-- [ ] Confirm the pause message is unmistakable on stage — this is the "aha" moment, don't let it be subtle.
-- [ ] Confirm resume actually loads the prior FEN/PGN and doesn't silently start a fresh board.
+After both manual agent commands exit, rerun the Alice and Bob agent commands.
+You may use 30000 milliseconds for both. Both UIs should resume the same board
+with the `e2-e4` move preserved.
+
+## Acceptance checklist
+
+- [ ] Both agent terminals print `{"type":"waiting"}` only in console mode;
+      with WebSocket mode, the server records both users as waiting.
+- [ ] Both UIs match and show opposite colors.
+- [ ] One legal move updates both boards.
+- [ ] Bob's completion pauses both boards.
+- [ ] Alice sees the opponent-finished notice.
+- [ ] Restarting both agent commands resumes the saved FEN.
+- [ ] The server reports no protocol errors.
+
+Rehearse the sequence twice before presenting. Mock mode remains the fallback:
+
+```bash
+npm run ui:mock
+```

@@ -1,65 +1,50 @@
-# Person 1: Terminal Chess UI
+# CodeChess Terminal Client
 
-Owner of everything the developer sees and interacts with inside the terminal.
+The client renders server state and proposes moves. The server remains
+authoritative for turns, legality, game completion, pause, and resume.
 
-Protocol contract: [`../shared/PROTOCOL.md`](../shared/PROTOCOL.md). You do **not** own chess move validation — you send proposed moves and render whatever the server confirms.
+## Start the client
 
-## Must have
+Run the standalone mock from the repository root:
 
-- [ ] Render chessboard (8x8 grid, coordinate labels a–h / 1–8)
-- [ ] Render chess pieces (Unicode glyphs, per PRD example)
-- [ ] Show player color (white/black, from `match_found.color`)
-- [ ] Show current turn (from `game_state.turn` / `move_accepted.turn`)
-- [ ] Keyboard cursor movement (arrow keys)
-- [ ] Select piece with `Enter`
-- [ ] Select destination with `Enter` → send `{ type: "move", from, to }`
-- [ ] Receive updated board state (`game_state`, `move_accepted`) and redraw
-
-## Next priority
-
-- [ ] Mouse capture (terminal mouse reporting)
-- [ ] Convert terminal x/y → board row/column → chess square
-- [ ] Click piece to select, click destination to attempt move
-- [ ] Highlight selected square
-- [ ] Highlight legal destination squares (only if server exposes them cheaply — otherwise skip, don't compute legality client-side)
-
-## Stretch
-
-- [ ] Drag-and-drop (mouse down → drag → release)
-- [ ] Animations
-- [ ] Better Unicode styling / board theming
-- [ ] Board resizing on terminal resize
-
-## Interface you consume from the server
-
-```json
-{ "type": "match_found", "gameId": "...", "color": "white", "fen": "..." }
-{ "type": "game_state", "fen": "...", "turn": "white" }
-{ "type": "move_accepted", "fen": "...", "turn": "black" }
-{ "type": "move_rejected", "reason": "..." }
-{ "type": "game_paused" }
-{ "type": "opponent_agent_finished" }
-{ "type": "game_resumed", "fen": "...", "pgn": "..." }
+```bash
+npm run ui:mock
 ```
 
-## What you send
+Run a multiplayer UI against the default server:
 
-```json
-{ "type": "move", "from": "e2", "to": "e4" }
+```bash
+npm run ui -- --url ws://localhost:8080 --user-id alice
 ```
 
-## UX states to handle
+`CODECHESS_WS_URL` and `CODECHESS_USER_ID` provide the same values. The URL
+defaults to `ws://localhost:8080`.
 
-1. **Idle** — no game, agent not waiting. Normal terminal.
-2. **Waiting for player** — your agent is waiting, no opponent yet. Show "Waiting for another developer..."
-3. **Active** — board rendered, moves flow both ways.
-4. **Paused** — either agent finished. Freeze the board, show why (`game_paused` / `opponent_agent_finished`), and get out of the way so the AI result is visible.
-5. **Resumed** — same two players waiting again; load the resumed FEN/PGN instead of a fresh board.
+## Controls
 
-## Suggested libraries
+| Input | Action |
+|---|---|
+| Arrow keys | Move the keyboard cursor |
+| Enter | Select a source, then a destination |
+| Mouse click | Select a source, then a destination |
+| Escape | Cancel the current selection |
+| `q` | Quit and restore the terminal |
 
-Terminal rendering: Terminal Kit, Ink, or hand-rolled ANSI. WebSocket client: `ws` (Node) or the browser-native `WebSocket` if the client ever runs outside Node.
+Mock mode adds development controls:
 
-## Standalone test target (before integrating with Person 2)
+| Key | Action |
+|---|---|
+| `p` | Toggle paused or active |
+| `o` | Make the opponent move when Black has the turn |
+| `r` | Reset the game |
+| `f` | Mark the opponent agent finished and pause |
 
-You can build and demo the board + keyboard/mouse interaction against a stub/mock server that just echoes moves back as accepted, so you're not blocked waiting on the real server.
+## Runtime notes
+
+- Use Node.js 22.13 or later and an interactive TTY of at least 70×24 cells.
+- Mouse input requires xterm-style button reporting.
+- A monospace font should render each Unicode chess piece in one cell.
+- Drag-and-drop is unsupported; mouse interaction is click-to-move.
+
+Run `npm run check` from the repository root to execute all tests and
+typechecks.
