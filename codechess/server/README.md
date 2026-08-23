@@ -4,18 +4,6 @@ Owner of everything involving communication between the two terminals. The serve
 
 Protocol contract: [`../shared/PROTOCOL.md`](../shared/PROTOCOL.md).
 
-## Run the current server
-
-From the `codechess` directory:
-
-```bash
-npm install
-npm run start:server
-```
-
-The server listens on `ws://localhost:8080` by default. During development, use
-`npm run dev:server` to restart it automatically after source changes.
-
 ## Must have
 
 - [x] WebSocket server (`ws`)
@@ -30,6 +18,22 @@ The server listens on `ws://localhost:8080` by default. During development, use
 - [x] Pause: either player sends `done` → status `PAUSED`, broadcast `game_paused` to both, `opponent_agent_finished` to the other player specifically
 - [x] Resume: same two players both become `waitingForAgent = true` again with a stored game for the pair → load stored FEN/PGN, status `ACTIVE`, broadcast `game_resumed`
 - [x] In-memory persistence: `const games = new Map()`, keyed by `gameId`, keeps state for the life of the server process
+
+## Temporary endpoint
+
+Person 3 can use the temporary local endpoint during integration:
+
+```bash
+cd server
+npm install
+npm run dev -- --port=3000
+```
+
+That endpoint listens on:
+
+```bash
+ws://localhost:3000
+```
 
 ## Stretch
 

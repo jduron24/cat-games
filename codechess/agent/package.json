@@ -1,0 +1,17 @@
+{
+  "name": "codechess-agent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --import tsx src/cli.ts",
+    "test": "node --import tsx src/cli.ts --help"
+  },
+  "dependencies": {
+    "openai": "^6.0.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

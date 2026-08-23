@@ -1,0 +1,13 @@
+{
+  "name": "cat-games",
+  "private": true,
+  "workspaces": [
+    "codechess/client"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @codechess/client --",
+    "test": "npm run test --workspace @codechess/client --",
+    "ui": "npm run ui --workspace @codechess/client --",
+    "ui:mock": "npm run ui:mock --workspace @codechess/client --"
+  }
+}
