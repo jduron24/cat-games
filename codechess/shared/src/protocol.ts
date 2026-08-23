@@ -12,6 +12,7 @@ export type Square = `${"a" | "b" | "c" | "d" | "e" | "f" | "g" | "h"}${
 
 export type ClientMessage =
   | { type: "hello"; userId: string; role: PeerRole }
+  | { type: "room_hello"; playerToken: string }
   | { type: "waiting" }
   | { type: "done" }
   | { type: "move"; from: Square; to: Square }
@@ -19,6 +20,7 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { type: "hello_ack"; userId: string; role: PeerRole }
+  | { type: "room_hello_ack"; roomCode: string; playerId: string }
   | { type: "error"; reason: string }
   | { type: "waiting_for_player" }
   | { type: "match_found"; gameId: string; color: PlayerColor; fen: string }
@@ -42,6 +44,10 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       }
       return { type: "hello", userId: value.userId.trim(), role: value.role };
     }
+    case "room_hello":
+      return isPlayerToken(value.playerToken)
+        ? { type: "room_hello", playerToken: value.playerToken }
+        : null;
     case "waiting":
     case "done":
     case "disconnect":
@@ -64,6 +70,14 @@ export function parseServerMessage(value: unknown): ServerMessage | null {
     case "hello_ack":
       return typeof value.userId === "string" && Boolean(value.userId.trim()) && isPeerRole(value.role)
         ? { type: "hello_ack", userId: value.userId.trim(), role: value.role }
+        : null;
+    case "room_hello_ack":
+      return isRoomCode(value.roomCode) && isBoundedString(value.playerId, 1, 128)
+        ? {
+            type: "room_hello_ack",
+            roomCode: value.roomCode,
+            playerId: value.playerId,
+          }
         : null;
     case "error":
     case "move_rejected":
@@ -128,4 +142,16 @@ function isFen(value: unknown): value is string {
   const fields = value.trim().split(/\s+/);
   const ranks = fields[0]?.split("/");
   return fields.length === 6 && ranks?.length === 8 && (fields[1] === "w" || fields[1] === "b");
+}
+
+function isPlayerToken(value: unknown): value is string {
+  return isBoundedString(value, 32, 256);
+}
+
+function isRoomCode(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(value);
+}
+
+function isBoundedString(value: unknown, minimum: number, maximum: number): value is string {
+  return typeof value === "string" && value.length >= minimum && value.length <= maximum;
 }

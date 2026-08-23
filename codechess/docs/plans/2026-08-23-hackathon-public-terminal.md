@@ -75,7 +75,7 @@ parseClientMessage({
 
 parseServerMessage({
   type: "room_hello_ack",
-  roomCode: "BLUE-CAT-47",
+  roomCode: "BLUE-CAT7",
   playerId: "player-1",
 });
 ```
@@ -164,7 +164,7 @@ Test that `parseCli()` recognizes:
 ```text
 codechess setup --server https://play.example.test
 codechess host --name Alice
-codechess join BLUE-CAT-47 --name Bob
+codechess join BLUE-CAT7 --name Bob
 codechess play
 codechess doctor
 codechess uninstall-hooks
@@ -558,7 +558,7 @@ git commit -m "feat: reconnect public terminal sessions"
 Cover these exact user states:
 
 ```text
-Waiting for your teammate to join room BLUE-CAT-47
+Waiting for your teammate to join room BLUE-CAT7
 Both agents must be working before the game starts
 Opponent's agent finished — game paused
 Connection lost — reconnecting…
@@ -680,7 +680,7 @@ Document tagged GitHub installation first:
 npm install --global github:jduron24/cat-games#codechess-v0.1.0
 codechess setup --server https://<service-host>
 codechess host --name Alice
-codechess join BLUE-CAT-47 --name Bob
+codechess join BLUE-CAT7 --name Bob
 ```
 
 Add npm publication only after verifying an available package name and team

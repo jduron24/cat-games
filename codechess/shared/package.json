@@ -5,7 +5,8 @@
   "type": "module",
   "types": "./src/protocol.ts",
   "exports": {
-    ".": "./src/protocol.ts"
+    ".": "./src/protocol.ts",
+    "./http-contract": "./src/http-contract.ts"
   },
   "scripts": {
     "test": "tsx --test test/**/*.test.ts",

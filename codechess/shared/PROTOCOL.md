@@ -13,6 +13,7 @@ The server only ever transmits game-related information — never shell commands
 ```ts
 type ClientMessage =
     | { type: "hello"; userId: string; role: "ui" | "agent" }
+    | { type: "room_hello"; playerToken: string }
     | { type: "waiting" }
     | { type: "done" }
     | { type: "move"; from: string; to: string }
@@ -38,6 +39,7 @@ may send lifecycle messages (`waiting` and `done`).
 ```ts
 type ServerMessage =
     | { type: "hello_ack"; userId: string; role: "ui" | "agent" }
+    | { type: "room_hello_ack"; roomCode: string; playerId: string }
     | { type: "error"; reason: string }
     | { type: "waiting_for_player" }
     | {
@@ -62,6 +64,7 @@ type ServerMessage =
 | Message | Sent when | Consumed by |
 |---|---|---|
 | `hello_ack` | a UI or agent socket has been attached to a logical user | connecting socket |
+| `room_hello_ack` | a public terminal token has authenticated its room seat | connecting terminal |
 | `error` | a message is malformed or not allowed for the socket role | sending socket |
 | `waiting_for_player` | user is waiting, no opponent yet | client UI: show "Waiting for another developer..." |
 | `match_found` | matchmaking paired two waiting users | client UI: mount the board, note assigned color |
@@ -101,6 +104,31 @@ interface User {
 
 A user is matchmaking-eligible when its UI socket is connected and
 `waitingForAgent === true`.
+
+## Public room HTTP API
+
+The installable companion uses HTTP for short-lived setup and hook events:
+
+```text
+GET  /healthz
+POST /v1/rooms
+POST /v1/rooms/:roomCode/join
+POST /v1/activity
+```
+
+Room creation accepts `{ "displayName": "Alice" }`. Joining accepts the same
+display name in the body and an eight-character code such as `BLUE-CAT7` in
+the URL. Both return a room code, player ID, and opaque player token. Activity
+requests use `Authorization: Bearer <playerToken>` and carry an activity ID
+plus `start`, `heartbeat`, or `stop`.
+
+Public terminals authenticate by sending `room_hello` with their player token.
+The server replies with `room_hello_ack`, then sends the existing chess state
+messages. Tokens, prompts, source code, and terminal history never appear in
+logs or game messages.
+
+The hackathon server keeps public rooms and games in memory. Restarting the
+server clears every room, token, and saved position.
 
 ## Sequence reference
 

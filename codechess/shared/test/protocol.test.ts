@@ -22,6 +22,10 @@ test("parses valid client messages into canonical protocol values", () => {
   const messages = [
     { type: "hello", userId: "alice", role: "ui" },
     { type: "hello", userId: "alice", role: "agent" },
+    {
+      type: "room_hello",
+      playerToken: "0123456789abcdef0123456789abcdef",
+    },
     { type: "waiting" },
     { type: "done" },
     { type: "move", from: "e2", to: "e4" },
@@ -53,6 +57,7 @@ test("rejects malformed client messages", () => {
 test("parses valid server messages including handshake and errors", () => {
   const messages = [
     { type: "hello_ack", userId: "alice", role: "ui" },
+    { type: "room_hello_ack", roomCode: "BLUE-CAT7", playerId: "player-1" },
     { type: "error", reason: "bad request" },
     { type: "waiting_for_player" },
     { type: "match_found", gameId: "game-1", color: "white", fen: START_FEN },
@@ -75,6 +80,7 @@ test("rejects malformed server messages", () => {
     null,
     [],
     { type: "hello_ack", userId: "alice", role: "browser" },
+    { type: "room_hello_ack", roomCode: "blue-cat7", playerId: "player-1" },
     { type: "error" },
     { type: "match_found", gameId: "game-1", color: "purple", fen: START_FEN },
     { type: "game_state", fen: 42, turn: "white" },
