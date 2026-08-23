@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { pathToFileURL } from "node:url";
+
 export type CliCommand =
   | { name: "help" }
   | { name: "setup"; serverUrl: string }
@@ -6,7 +8,8 @@ export type CliCommand =
   | { name: "join"; roomCode: string; displayName: string }
   | { name: "play" }
   | { name: "doctor" }
-  | { name: "uninstall-hooks" };
+  | { name: "uninstall-hooks" }
+  | { name: "hook"; action: "start" | "heartbeat" | "stop" };
 
 export function parseCli(args: string[]): CliCommand {
   const [command, ...rest] = args;
@@ -38,6 +41,13 @@ export function parseCli(args: string[]): CliCommand {
         throw new Error(`${command} does not accept arguments.`);
       }
       return { name: command };
+    case "hook": {
+      const action = rest[0];
+      if ((action !== "start" && action !== "heartbeat" && action !== "stop") || rest.length !== 1) {
+        throw new Error("hook requires start, heartbeat, or stop.");
+      }
+      return { name: "hook", action };
+    }
     default:
       throw new Error(`Unknown command: ${command}`);
   }
@@ -80,10 +90,11 @@ async function main(): Promise<void> {
     process.stdout.write(CLI_HELP);
     return;
   }
-  throw new Error(`${command.name} is not implemented yet.`);
+  const { executeCommand } = await import("./app.js");
+  process.stdout.write(await executeCommand(command));
 }
 
-if (process.argv[1] && import.meta.url === new URL(process.argv[1], "file:").href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   void main().catch((error: unknown) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
