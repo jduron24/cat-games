@@ -1,5 +1,7 @@
 {
   "name": "cat-games",
+  "version": "0.1.0",
+  "description": "Two-player terminal chess for overlapping coding-agent runs",
   "private": true,
   "engines": {
     "node": ">=22.13"
@@ -21,9 +23,18 @@
     "agent": "npm run dev --workspace @codechess/agent --",
     "ui": "npm run ui --workspace @codechess/client --",
     "ui:mock": "npm run ui:mock --workspace @codechess/client --",
-    "prepare": "npm run build --workspace @codechess/companion"
+    "prepare": "npm run build --workspace @codechess/companion && node scripts/stage-package.mjs"
   },
   "bin": {
-    "codechess": "codechess/companion/dist/cli.js"
+    "codechess": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "codechess/docs/PUBLIC_DEMO.md"
+  ],
+  "dependencies": {
+    "chess.js": "^1.4.0",
+    "terminal-kit": "^3.1.4",
+    "ws": "^8.21.3"
   }
 }

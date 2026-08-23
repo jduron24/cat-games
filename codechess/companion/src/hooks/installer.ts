@@ -69,6 +69,13 @@ async function readHooks(path: string): Promise<HooksDocument> {
     if (parsed.hooks !== undefined && !isObject(parsed.hooks)) {
       throw new Error("Existing Codex hooks configuration has an invalid hooks field.");
     }
+    if (isObject(parsed.hooks)) {
+      for (const entries of Object.values(parsed.hooks)) {
+        if (!Array.isArray(entries) || !entries.every(isObject)) {
+          throw new Error("Existing Codex hooks configuration has an invalid hook event.");
+        }
+      }
+    }
     return parsed as HooksDocument;
   } catch (error: unknown) {
     if (isObject(error) && error.code === "ENOENT") return { version: 1, hooks: {} };

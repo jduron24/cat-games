@@ -19,6 +19,7 @@ test("host, join, and play use the injected terminal runner", async () => {
   };
   const dependencies = {
     home,
+    writeOutput: () => undefined,
     apiFactory: () => api as never,
     runTerminal: async (session: TerminalSession) => {
       count += 1;
@@ -31,4 +32,26 @@ test("host, join, and play use the injected terminal runner", async () => {
   await executeCommand({ name: "play" }, dependencies);
   assert.equal(count, 3);
   assert.deepEqual(sessions[2], { websocketUrl: "wss://play.test", playerToken: "b".repeat(32) });
+});
+
+test("setup clears room credentials when changing servers", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codechess-setup-"));
+  const path = configPath(home);
+  await writeConfig({
+    serverUrl: "https://old.test",
+    roomCode: "BLUE-CAT7",
+    playerId: "alice",
+    playerToken: "a".repeat(32),
+  }, path);
+  const cliPath = join(home, "cli.js");
+  await import("node:fs/promises").then(({ writeFile, chmod }) =>
+    writeFile(cliPath, "").then(() => chmod(cliPath, 0o600)),
+  );
+
+  await executeCommand(
+    { name: "setup", serverUrl: "https://new.test" },
+    { home, nodePath: process.execPath, cliPath },
+  );
+
+  assert.deepEqual(await readConfig(path), { serverUrl: "https://new.test" });
 });

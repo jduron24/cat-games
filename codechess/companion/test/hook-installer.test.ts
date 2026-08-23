@@ -35,3 +35,19 @@ test("hook install merges idempotently and uninstall preserves unrelated hooks",
   assert.deepEqual(removed.hooks.stop, [unrelated]);
   assert.deepEqual(removed.hooks.beforeSubmitPrompt, []);
 });
+
+test("hook install refuses malformed existing event data", async () => {
+  const home = await mkdtemp(join(tmpdir(), "codechess-hooks-invalid-"));
+  await mkdir(join(home, ".cursor"));
+  await writeFile(hooksPath(home), JSON.stringify({ version: 1, hooks: { stop: { command: "keep-me" } } }));
+  const cli = join(home, "cli.js");
+  await writeFile(cli, "");
+  await chmod(cli, 0o600);
+
+  await assert.rejects(
+    installHooks({ home, nodePath: process.execPath, cliPath: cli }),
+    /invalid hook event/,
+  );
+  const preserved = JSON.parse(await readFile(hooksPath(home), "utf8"));
+  assert.deepEqual(preserved.hooks.stop, { command: "keep-me" });
+});

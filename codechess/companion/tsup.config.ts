@@ -7,6 +7,6 @@ export default defineConfig({
   target: "node22",
   bundle: true,
   clean: true,
-  banner: { js: "#!/usr/bin/env node" },
   noExternal: [/^@codechess\//],
+  external: ["chess.js", "terminal-kit", "ws"],
 });

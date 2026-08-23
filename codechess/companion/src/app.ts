@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
+import { runTerminalSession } from "@codechess/client/public-api";
 
 import { CodeChessApiClient, toWebSocketUrl } from "./api-client.js";
 import type { CliCommand } from "./cli.js";
@@ -16,6 +17,7 @@ export type AppDependencies = {
   runTerminal?: RunTerminal;
   apiFactory?: (url: string) => CodeChessApiClient;
   readStdin?: () => Promise<string>;
+  writeOutput?: (value: string) => void;
 };
 
 export async function executeCommand(command: CliCommand, dependencies: AppDependencies = {}): Promise<string> {
@@ -27,8 +29,7 @@ export async function executeCommand(command: CliCommand, dependencies: AppDepen
     case "help":
       return "";
     case "setup": {
-      const previous = await readConfig(path);
-      await writeConfig({ ...(previous ?? {}), serverUrl: command.serverUrl }, path);
+      await writeConfig({ serverUrl: command.serverUrl }, path);
       await installHooks({
         home,
         nodePath: dependencies.nodePath ?? process.execPath,
@@ -41,8 +42,12 @@ export async function executeCommand(command: CliCommand, dependencies: AppDepen
       const room = await apiFactory(config.serverUrl).host(command.displayName);
       const active = { ...config, ...room, displayName: command.displayName };
       await writeConfig(active, path);
-      await runTerminal(toSession(active));
-      return `Room ${room.roomCode} created. Share this code with your teammate.\n`;
+      const terminal = runTerminal(toSession(active));
+      (dependencies.writeOutput ?? ((value) => process.stdout.write(value)))(
+        `Room ${room.roomCode} created. Share this code with your teammate.\n`,
+      );
+      await terminal;
+      return "";
     }
     case "join": {
       const config = await requireConfig(path);
@@ -94,14 +99,5 @@ async function readStandardInput(): Promise<string> {
 }
 
 async function productionTerminalAdapter(session: Parameters<RunTerminal>[0]): Promise<void> {
-  // Kept isolated so the integration lane only needs to replace this adapter
-  // with @codechess/client's runTerminalSession public export.
-  const dynamicImport = new Function("specifier", "return import(specifier)") as (
-    specifier: string,
-  ) => Promise<Record<string, unknown>>;
-  const client = await dynamicImport("@codechess/client/public-api");
-  if (typeof client.runTerminalSession !== "function") {
-    throw new Error("Installed CodeChess client does not expose terminal sessions.");
-  }
-  await (client.runTerminalSession as RunTerminal)(session);
+  await runTerminalSession(session);
 }
