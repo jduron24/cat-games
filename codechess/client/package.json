@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --project tsconfig.json",
+    "typecheck": "tsc --project tsconfig.json",
     "test": "vitest run",
     "ui": "tsx src/index.ts",
     "ui:mock": "tsx src/index.ts --mock"

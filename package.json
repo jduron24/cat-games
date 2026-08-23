@@ -2,11 +2,19 @@
   "name": "cat-games",
   "private": true,
   "workspaces": [
-    "codechess/client"
+    "codechess/client",
+    "codechess/server",
+    "codechess/agent",
+    "codechess/shared"
   ],
   "scripts": {
-    "build": "npm run build --workspace @codechess/client --",
-    "test": "npm run test --workspace @codechess/client --",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "check": "npm run test && npm run typecheck",
+    "server": "npm run start --workspace @codechess/server --",
+    "server:dev": "npm run dev --workspace @codechess/server --",
+    "agent": "npm run dev --workspace @codechess/agent --",
     "ui": "npm run ui --workspace @codechess/client --",
     "ui:mock": "npm run ui:mock --workspace @codechess/client --"
   }
