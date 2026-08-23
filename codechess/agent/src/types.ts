@@ -9,7 +9,7 @@ export interface AgentTransport {
 
 export interface LifecycleEventSink {
   onActivity(message: string): void;
-  onTurnStarted(): void;
-  onTurnCompleted(finalOutput: string): void;
+  onTurnStarted(): void | Promise<void>;
+  onTurnCompleted(finalOutput: string): void | Promise<void>;
   onError(error: Error): void;
 }

@@ -1,6 +1,9 @@
 {
   "name": "cat-games",
   "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
   "workspaces": [
     "codechess/client",
     "codechess/server",

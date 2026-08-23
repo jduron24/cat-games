@@ -1,41 +1,43 @@
-# Person 3: Codex Integration + Orchestration
+# CodeChess Agent
 
-This package is the standalone agent track.
+This package maps an agent run to the CodeChess lifecycle: it sends `waiting`
+before the run starts and `done` after every terminal result.
 
-## Install
+Run all commands from the repository root. The Cursor SDK requires Node.js
+22.13 or later.
 
-```bash
-cd agent
-npm install
-```
+## Manual mode
 
-## Local computer test first
-
-Run the manual lifecycle mode to verify event ordering and terminal behavior before connecting a WebSocket server:
+Manual mode tests the lifecycle without an API key:
 
 ```bash
-npm run dev -- --mode manual --prompt "hello"
+npm run agent -- --mode manual --prompt "hello"
 ```
 
-## Real Codex hookup
+## Cursor SDK mode
 
-Use the default mode to run the real OpenAI SDK path:
+Set a Cursor API key, then run a local SDK agent against the current checkout:
 
 ```bash
-npm run dev -- --prompt "build the feature"
+export CURSOR_API_KEY="your-key"
+npm run agent -- --prompt "build the feature"
 ```
 
-Make sure `OPENAI_API_KEY` is set in your environment before running the real SDK path.
+The runner uses `@cursor/sdk` with `{ model: { id: "auto" } }` and an explicit
+local working directory. It streams generic activity labels to stderr, prints
+the final result locally, and never sends prompt or source text through the
+CodeChess game server.
 
-## WebSocket endpoint later
+## Multiplayer lifecycle
 
-When the server URL is ready, add it with:
+Use the same URL and user ID as the matching terminal UI:
 
 ```bash
-npm run dev -- --prompt "build the feature" --ws-url ws://localhost:3000
+npm run agent -- \
+  --mode manual \
+  --prompt "demo turn" \
+  --ws-url ws://localhost:8080 \
+  --user-id alice
 ```
 
-The agent sends only the protocol messages it owns:
-
-- `waiting`
-- `done`
+You can also set `CODECHESS_WS_URL` and `CODECHESS_USER_ID`.

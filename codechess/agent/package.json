@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@codechess/shared": "0.1.0",
-    "openai": "^6.0.0",
+    "@cursor/sdk": "^1.0.28",
     "ws": "^8.18.3"
   },
   "devDependencies": {

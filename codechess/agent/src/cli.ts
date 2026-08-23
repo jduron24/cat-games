@@ -121,21 +121,19 @@ export async function main(
   }
 
   const transport = createTransport(options);
-  let completion: Promise<void> = Promise.resolve();
 
   const sink: LifecycleEventSink = {
     onActivity(message) {
       console.error(message);
     },
-    onTurnStarted() {
-      completion = transport.send({ type: "waiting" });
+    async onTurnStarted() {
+      await transport.send({ type: "waiting" });
     },
-    onTurnCompleted(finalOutput) {
-      completion = completion.then(() => transport.send({ type: "done" })).then(() => {
-        if (finalOutput) {
-          process.stdout.write(`${finalOutput}\n`);
-        }
-      });
+    async onTurnCompleted(finalOutput) {
+      await transport.send({ type: "done" });
+      if (finalOutput) {
+        process.stdout.write(`${finalOutput}\n`);
+      }
     },
     onError(error) {
       console.error(error.message);
@@ -148,7 +146,6 @@ export async function main(
     } else {
       await runCodexLifecycle({ prompt: options.prompt, sink });
     }
-    await completion;
   } finally {
     await transport.close();
   }
