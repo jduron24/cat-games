@@ -1,0 +1,16 @@
+{
+  "name": "codechess-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --import tsx src/server.ts",
+    "test": "node --import tsx src/server.ts --help"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
