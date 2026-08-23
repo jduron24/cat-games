@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   WebSocketGameTransport,
@@ -26,6 +26,38 @@ class FakeSocket extends EventEmitter implements ClientSocket {
 const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 describe("WebSocketGameTransport", () => {
+  it("settles and cleans up a pending handshake on explicit disconnect", async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = new FakeSocket();
+      const transport = new WebSocketGameTransport({
+        url: "ws://localhost:8080",
+        playerToken: "secret-player-token-that-is-long-enough",
+        socketFactory: () => socket,
+        handshakeTimeoutMs: 10_000,
+      });
+
+      const connecting = transport.connect();
+      let rejection: Error | undefined;
+      void connecting.catch((error: Error) => {
+        rejection = error;
+      });
+      socket.emit("open");
+
+      transport.disconnect();
+      await Promise.resolve();
+
+      expect(rejection?.message).toMatch(/disconnect/i);
+      expect(socket.listenerCount("open")).toBe(0);
+      expect(socket.listenerCount("message")).toBe(0);
+      expect(socket.listenerCount("error")).toBe(0);
+      expect(socket.listenerCount("close")).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("authenticates room sessions without exposing the player token", async () => {
     const token = "secret-player-token-that-is-long-enough";
     const socket = new FakeSocket();

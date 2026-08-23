@@ -8,6 +8,7 @@ import type { GameTransport, TransportNotice } from "./game-transport.js";
 export interface ClientSocket {
   readyState: number;
   on(event: string, listener: (...args: unknown[]) => void): unknown;
+  off?(event: string, listener: (...args: unknown[]) => void): unknown;
   send(data: string): void;
   close(): void;
 }
@@ -52,6 +53,7 @@ export class WebSocketGameTransport implements GameTransport {
   private retryHandle: unknown = null;
   private retryAttempt = 0;
   private explicitlyDisconnected = false;
+  private cancelPendingConnection: (() => void) | null = null;
 
   constructor(options: WebSocketGameTransportOptions) {
     this.url = options.url;
@@ -101,6 +103,9 @@ export class WebSocketGameTransport implements GameTransport {
       this.reconnectScheduler.cancel(this.retryHandle);
       this.retryHandle = null;
     }
+    const cancelPendingConnection = this.cancelPendingConnection;
+    this.cancelPendingConnection = null;
+    cancelPendingConnection?.();
     const socket = this.socket;
     this.socket = null;
     this.connection = null;
@@ -115,20 +120,30 @@ export class WebSocketGameTransport implements GameTransport {
     return new Promise<void>((resolve, reject) => {
       let acknowledged = false;
       let settled = false;
-      const rejectHandshake = (error: Error): void => {
+      let handshakeTimeout: ReturnType<typeof setTimeout>;
+      const removeSocketListeners = (): void => {
+        socket.off?.("open", handleOpen);
+        socket.off?.("message", handleMessage);
+        socket.off?.("error", handleError);
+        socket.off?.("close", handleClose);
+      };
+      const finishHandshake = (): void => {
+        clearTimeout(handshakeTimeout);
+        if (this.cancelPendingConnection === cancelPendingConnection) {
+          this.cancelPendingConnection = null;
+        }
+      };
+      const rejectHandshake = (error: Error, removeListeners = false): void => {
         if (settled) return;
         settled = true;
-        clearTimeout(handshakeTimeout);
+        finishHandshake();
+        if (removeListeners) removeSocketListeners();
         reject(error);
       };
-      const handshakeTimeout = setTimeout(() => {
-        if (!acknowledged) {
-          rejectHandshake(new Error("WebSocket UI handshake timed out."));
-          socket.close();
-        }
-      }, this.handshakeTimeoutMs);
-
-      socket.on("open", () => {
+      const cancelPendingConnection = (): void => {
+        rejectHandshake(new Error("WebSocket connection disconnected before the handshake completed."), true);
+      };
+      const handleOpen = (): void => {
         socket.send(
           JSON.stringify(
             this.playerToken !== null
@@ -136,8 +151,8 @@ export class WebSocketGameTransport implements GameTransport {
               : { type: "hello", userId: this.userId, role: "ui" },
           ),
         );
-      });
-      socket.on("message", (data) => {
+      };
+      const handleMessage = (data: unknown): void => {
         const message = this.handleMessage(data);
         if (!message || acknowledged) return;
         if (this.playerToken !== null && message.type === "room_hello_ack") {
@@ -153,7 +168,7 @@ export class WebSocketGameTransport implements GameTransport {
           this.roomIdentity = identity;
           acknowledged = true;
           settled = true;
-          clearTimeout(handshakeTimeout);
+          finishHandshake();
           this.retryAttempt = 0;
           this.emitNotice("info", `Connected to room ${identity.roomCode}.`);
           resolve();
@@ -167,7 +182,7 @@ export class WebSocketGameTransport implements GameTransport {
         ) {
           acknowledged = true;
           settled = true;
-          clearTimeout(handshakeTimeout);
+          finishHandshake();
           resolve();
           return;
         }
@@ -179,13 +194,13 @@ export class WebSocketGameTransport implements GameTransport {
           rejectHandshake(new Error("Server acknowledgement identity did not match this UI."));
           socket.close();
         }
-      });
-      socket.on("error", (error) => {
+      };
+      const handleError = (error: unknown): void => {
         const detail = this.redact(error instanceof Error ? error.message : String(error));
         this.emitNotice("error", `WebSocket error: ${detail}`);
         if (!acknowledged) rejectHandshake(new Error(detail));
-      });
-      socket.on("close", () => {
+      };
+      const handleClose = (): void => {
         if (this.socket !== socket) return;
         this.socket = null;
         this.connection = null;
@@ -200,7 +215,18 @@ export class WebSocketGameTransport implements GameTransport {
         } else if (!this.explicitlyDisconnected) {
           this.emitNotice("info", "Disconnected from the CodeChess server.");
         }
-      });
+      };
+      handshakeTimeout = setTimeout(() => {
+        if (!acknowledged) {
+          rejectHandshake(new Error("WebSocket UI handshake timed out."));
+          socket.close();
+        }
+      }, this.handshakeTimeoutMs);
+      this.cancelPendingConnection = cancelPendingConnection;
+      socket.on("open", handleOpen);
+      socket.on("message", handleMessage);
+      socket.on("error", handleError);
+      socket.on("close", handleClose);
     });
   }
 

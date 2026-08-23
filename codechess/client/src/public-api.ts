@@ -11,7 +11,10 @@ export async function runTerminalSession(options: {
     playerToken: options.playerToken,
   });
   const ui = new TerminalChessUI({ transport, terminal: new TerminalKitAdapter() });
-  const stop = (): void => ui.stop();
+  const stop = (): void => {
+    ui.stop();
+    transport.disconnect();
+  };
 
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
