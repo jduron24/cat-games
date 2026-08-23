@@ -1,6 +1,6 @@
 export type PlayerColor = "white" | "black";
 
-export type GameStatus = "active" | "paused" | "completed";
+export type GameStatus = "active" | "paused" | "completed" | "reconnecting";
 
 export type OpponentStatus = "waiting" | "playing" | "agent_finished";
 

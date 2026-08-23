@@ -227,11 +227,14 @@ function turnMessage(state: GameState | null): string {
   if (state.status === "completed") {
     return "GAME COMPLETED";
   }
+  if (state.status === "reconnecting") {
+    return "RECONNECTING — MOVES DISABLED";
+  }
   return state.turn === state.playerColor ? "YOUR TURN — choose a piece" : "OPPONENT'S TURN — waiting";
 }
 
 function turnStyle(state: GameState | null): readonly string[] {
-  if (!state || state.status === "paused") {
+  if (!state || state.status === "paused" || state.status === "reconnecting") {
     return THEME.warningText;
   }
   if (state.status === "completed") {
