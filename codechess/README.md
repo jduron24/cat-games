@@ -31,6 +31,17 @@ Then jump to your track:
 - [`server/README.md`](server/README.md) — Person 2
 - [`agent/README.md`](agent/README.md) — Person 3
 
+## Standalone UI
+
+The terminal client can run before the server and agent tracks are available. From the repository root:
+
+```bash
+npm install
+npm run ui:mock
+```
+
+See [`client/README.md`](client/README.md) for controls and WebSocket configuration.
+
 ## Definition of done
 
 ```

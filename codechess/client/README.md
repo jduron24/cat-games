@@ -1,65 +1,83 @@
-# Person 1: Terminal Chess UI
+# CodeChess Terminal Client
 
-Owner of everything the developer sees and interacts with inside the terminal.
+The client renders chess state, handles keyboard and mouse input, and proposes moves through a transport interface. The production server remains authoritative for legality. The standalone mock uses `chess.js` only to provide a useful local game.
 
-Protocol contract: [`../shared/PROTOCOL.md`](../shared/PROTOCOL.md). You do **not** own chess move validation — you send proposed moves and render whatever the server confirms.
+## Quick start
 
-## Must have
+From the repository root:
 
-- [ ] Render chessboard (8x8 grid, coordinate labels a–h / 1–8)
-- [ ] Render chess pieces (Unicode glyphs, per PRD example)
-- [ ] Show player color (white/black, from `match_found.color`)
-- [ ] Show current turn (from `game_state.turn` / `move_accepted.turn`)
-- [ ] Keyboard cursor movement (arrow keys)
-- [ ] Select piece with `Enter`
-- [ ] Select destination with `Enter` → send `{ type: "move", from, to }`
-- [ ] Receive updated board state (`game_state`, `move_accepted`) and redraw
-
-## Next priority
-
-- [ ] Mouse capture (terminal mouse reporting)
-- [ ] Convert terminal x/y → board row/column → chess square
-- [ ] Click piece to select, click destination to attempt move
-- [ ] Highlight selected square
-- [ ] Highlight legal destination squares (only if server exposes them cheaply — otherwise skip, don't compute legality client-side)
-
-## Stretch
-
-- [ ] Drag-and-drop (mouse down → drag → release)
-- [ ] Animations
-- [ ] Better Unicode styling / board theming
-- [ ] Board resizing on terminal resize
-
-## Interface you consume from the server
-
-```json
-{ "type": "match_found", "gameId": "...", "color": "white", "fen": "..." }
-{ "type": "game_state", "fen": "...", "turn": "white" }
-{ "type": "move_accepted", "fen": "...", "turn": "black" }
-{ "type": "move_rejected", "reason": "..." }
-{ "type": "game_paused" }
-{ "type": "opponent_agent_finished" }
-{ "type": "game_resumed", "fen": "...", "pgn": "..." }
+```bash
+npm install
+npm run ui:mock
 ```
 
-## What you send
+The mock starts from the normal opening position, assigns White, accepts legal moves, and makes a Black move after 700 ms.
+
+## Controls
+
+| Input | Action |
+|---|---|
+| Arrow keys | Move the keyboard cursor |
+| Enter | Select a source, then a destination |
+| Mouse click | Select a source, then a destination |
+| Escape | Cancel the current selection |
+| q | Quit and restore the terminal |
+
+Mock mode also enables:
+
+| Key | Action |
+|---|---|
+| p | Toggle paused/active |
+| o | Make the opponent move immediately when it is Black's turn |
+| r | Reset the game |
+| f | Mark the opponent's agent finished and pause |
+
+These development keys are not registered in WebSocket mode.
+
+## Tests and type checking
+
+From the repository root:
+
+```bash
+npm test
+npm run build
+```
+
+The tests cover both board orientations, mouse hit testing and bounds, FEN display parsing, source/destination selection, Escape, mock play and controls, WebSocket messages, rendering states, keyboard/mouse controller flow, and cleanup.
+
+## WebSocket mode
+
+The adapter follows [`../shared/PROTOCOL.md`](../shared/PROTOCOL.md). Start it against the backend with:
+
+```bash
+npm run ui -- --url ws://localhost:8080 --user-id alice
+```
+
+The same values can come from `CODECHESS_WS_URL` and `CODECHESS_USER_ID`.
+
+The client sends `hello` after connecting, then emits moves as:
 
 ```json
 { "type": "move", "from": "e2", "to": "e4" }
 ```
 
-## UX states to handle
+The agent-integration track owns `waiting` and `done`; the terminal UI does not claim agent lifecycle state. The backend still owns matchmaking, accepted/rejected move decisions, state persistence, pause/resume coordination, and authoritative FEN updates. The current adapter expects the message shapes already committed in the shared protocol; it does not add authentication or reconnection policy.
 
-1. **Idle** — no game, agent not waiting. Normal terminal.
-2. **Waiting for player** — your agent is waiting, no opponent yet. Show "Waiting for another developer..."
-3. **Active** — board rendered, moves flow both ways.
-4. **Paused** — either agent finished. Freeze the board, show why (`game_paused` / `opponent_agent_finished`), and get out of the way so the AI result is visible.
-5. **Resumed** — same two players waiting again; load the resumed FEN/PGN instead of a fresh board.
+## Architecture
 
-## Suggested libraries
+- `coordinates.ts` owns visual index, algebraic square, orientation, and mouse coordinate conversion.
+- `fen.ts` parses piece placement for display without implementing chess rules.
+- `selection.ts` is the pure source/destination state transition.
+- `renderer.ts` returns a terminal frame from `GameState`; `theme.ts` contains all ANSI styling.
+- `terminal-ui.ts` connects input and rendering to any `GameTransport`.
+- `MockGameTransport` runs a local `chess.js` game and development controls.
+- `WebSocketGameTransport` translates the shared protocol into `GameState` updates.
+- `index.ts` installs terminal cleanup for normal exit, `SIGINT`, `SIGTERM`, uncaught exceptions, and unhandled rejections.
 
-Terminal rendering: Terminal Kit, Ink, or hand-rolled ANSI. WebSocket client: `ws` (Node) or the browser-native `WebSocket` if the client ever runs outside Node.
+## Terminal compatibility
 
-## Standalone test target (before integrating with Person 2)
-
-You can build and demo the board + keyboard/mouse interaction against a stub/mock server that just echoes moves back as accepted, so you're not blocked waiting on the real server.
+- Requires Node.js 20 or newer, an interactive TTY, and at least 70×24 cells.
+- Mouse input depends on xterm-style button reporting. It works in common terminals such as iTerm2, xterm, GNOME Terminal, Konsole, and compatible emulators, but may be unavailable in basic consoles or restricted remote sessions.
+- Unicode chess glyph width depends on the terminal font. A monospace font that renders chess symbols as one cell gives the intended alignment.
+- ANSI 256-color support gives the intended palette. Limited-color terminals remain usable because focus, selection, and last moves also use different punctuation.
+- Drag-and-drop is not implemented; mouse interaction is click-to-move.
