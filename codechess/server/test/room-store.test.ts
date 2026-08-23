@@ -65,3 +65,28 @@ test("room store heartbeat refreshes an existing activity but cannot start one",
   now = 91_500;
   assert.equal(store.isActive(credentials.playerId), true);
 });
+
+test("room store rejects creation at its global room cap", () => {
+  const store = new RoomStore({ maxRooms: 2 });
+
+  store.create("Alice");
+  store.create("Bob");
+
+  assert.throws(
+    () => store.create("Charlie"),
+    (error: unknown) =>
+      error instanceof RoomStoreError && error.code === "ROOM_CAPACITY",
+  );
+});
+
+test("room store removes expired rooms before applying its cap", () => {
+  let now = 1_000;
+  const store = new RoomStore({ maxRooms: 1, roomTtlMs: 100, now: () => now });
+  const expired = store.create("Alice");
+
+  now = 1_101;
+  const replacement = store.create("Bob");
+
+  assert.equal(store.getRoom(expired.roomCode), undefined);
+  assert.ok(store.getRoom(replacement.roomCode));
+});

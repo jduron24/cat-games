@@ -22,11 +22,12 @@ export type Room = {
   code: string;
   players: RoomPlayer[];
   currentGameId: string | null;
+  expiresAt: number;
 };
 
 export class RoomStoreError extends Error {
   constructor(
-    public readonly code: "ROOM_NOT_FOUND" | "ROOM_FULL" | "TOKEN_INVALID",
+    public readonly code: "ROOM_NOT_FOUND" | "ROOM_FULL" | "ROOM_CAPACITY" | "TOKEN_INVALID",
     message: string,
   ) {
     super(message);
@@ -36,25 +37,40 @@ export class RoomStoreError extends Error {
 export type RoomStoreOptions = {
   randomBytes?: RandomBytes;
   now?: () => number;
+  maxRooms?: number;
+  roomTtlMs?: number;
 };
 
 export class RoomStore {
   private readonly rooms = new Map<string, Room>();
   private readonly randomBytes: RandomBytes;
   private readonly now: () => number;
+  private readonly maxRooms: number;
+  private readonly roomTtlMs: number;
 
   constructor(options: RoomStoreOptions = {}) {
     this.randomBytes = options.randomBytes ?? secureRandomBytes;
     this.now = options.now ?? Date.now;
+    this.maxRooms = options.maxRooms ?? 1_000;
+    this.roomTtlMs = options.roomTtlMs ?? 24 * 60 * 60 * 1_000;
   }
 
   create(displayName: string): CreateRoomResponse {
+    this.expireRooms();
+    if (this.rooms.size >= this.maxRooms) {
+      throw new RoomStoreError("ROOM_CAPACITY", "Server room capacity reached");
+    }
     let code: string;
     do {
       code = this.generateCode();
     } while (this.rooms.has(code));
     const { player, credentials } = this.createPlayer(code, displayName);
-    this.rooms.set(code, { code, players: [player], currentGameId: null });
+    this.rooms.set(code, {
+      code,
+      players: [player],
+      currentGameId: null,
+      expiresAt: this.now() + this.roomTtlMs,
+    });
     return credentials;
   }
 
@@ -68,6 +84,7 @@ export class RoomStore {
     }
     const { player, credentials } = this.createPlayer(roomCode, displayName);
     room.players.push(player);
+    this.touch(room);
     return credentials;
   }
 
@@ -79,6 +96,7 @@ export class RoomStore {
     for (const room of this.rooms.values()) {
       for (const player of room.players) {
         if (verifyPlayerToken(token, player.tokenHash)) {
+          this.touch(room);
           return { room, player };
         }
       }
@@ -136,6 +154,18 @@ export class RoomStore {
     }
   }
 
+  expireRooms(): string[] {
+    const now = this.now();
+    const expired: string[] = [];
+    for (const [code, room] of this.rooms) {
+      if (room.expiresAt <= now) {
+        this.rooms.delete(code);
+        expired.push(code);
+      }
+    }
+    return expired;
+  }
+
   findPlayer(playerId: string): { room: Room; player: RoomPlayer } | null {
     for (const room of this.rooms.values()) {
       const player = room.players.find((candidate) => candidate.id === playerId);
@@ -165,5 +195,9 @@ export class RoomStore {
     const bytes = this.randomBytes(8);
     const characters = [...bytes].map((byte) => CODE_ALPHABET[byte % CODE_ALPHABET.length]);
     return `${characters.slice(0, 4).join("")}-${characters.slice(4).join("")}`;
+  }
+
+  private touch(room: Room): void {
+    room.expiresAt = this.now() + this.roomTtlMs;
   }
 }

@@ -76,7 +76,13 @@ export function createApiHandler(options: ApiOptions) {
       if (caught instanceof BodyError) {
         error(response, caught.code === "BODY_TOO_LARGE" ? 413 : 400, caught.code, caught.message);
       } else if (caught instanceof RoomStoreError) {
-        const status = caught.code === "ROOM_NOT_FOUND" ? 404 : caught.code === "ROOM_FULL" ? 409 : 401;
+        const status = caught.code === "ROOM_NOT_FOUND"
+          ? 404
+          : caught.code === "ROOM_FULL"
+            ? 409
+            : caught.code === "ROOM_CAPACITY"
+              ? 503
+              : 401;
         error(response, status, caught.code, caught.message);
       } else {
         error(response, 500, "INTERNAL_ERROR", "Internal server error");

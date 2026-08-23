@@ -53,6 +53,11 @@ export type CodeChessServerOptions = {
   leaseMs?: number;
   sweepMs?: number;
   pingMs?: number;
+  handshakeMs?: number;
+  maxPayloadBytes?: number;
+  maxRooms?: number;
+  roomTtlMs?: number;
+  allowLegacyProtocol?: boolean;
 };
 
 function send(socket: WebSocket | null, message: ServerMessage): void {
@@ -94,14 +99,20 @@ export function createCodeChessServer(port = 8080, options: CodeChessServerOptio
   const users = new Map<string, ConnectedUser>();
   const games = new Map<string, Game>();
   const gamesByPair = new Map<string, string>();
-  const roomStore = new RoomStore();
+  const roomStore = new RoomStore({
+    maxRooms: options.maxRooms,
+    roomTtlMs: options.roomTtlMs,
+  });
   let reconcilePublicRoom = (_roomCode: string): void => undefined;
   const httpServer = createServer(createApiHandler({
     roomStore,
     leaseMs: options.leaseMs,
     onActivityChanged: (roomCode) => reconcilePublicRoom(roomCode),
   }));
-  const webSocketServer = new WebSocketServer({ server: httpServer });
+  const webSocketServer = new WebSocketServer({
+    server: httpServer,
+    maxPayload: options.maxPayloadBytes ?? 64 * 1_024,
+  });
   httpServer.listen(port, options.host);
 
   function sendToUi(user: ConnectedUser | undefined, message: ServerMessage): void {
@@ -324,6 +335,10 @@ export function createCodeChessServer(port = 8080, options: CodeChessServerOptio
       return;
     }
 
+    if (game?.status === "COMPLETED") {
+      games.delete(game.id);
+      gamesByPair.delete(pairKey(game.playerWhite, game.playerBlack));
+    }
     const nextGame = createGame(players[0]!, players[1]!);
     room.currentGameId = nextGame.id;
   };
@@ -407,8 +422,19 @@ export function createCodeChessServer(port = 8080, options: CodeChessServerOptio
     return { userId: user.id, role: message.role };
   }
 
+  const liveSockets = new WeakSet<WebSocket>();
+
   webSocketServer.on("connection", (socket) => {
     let identity: ConnectionIdentity | null = null;
+    liveSockets.add(socket);
+    socket.on("error", () => {
+      // Protocol errors (including maxPayload violations) close only this peer.
+    });
+    socket.on("pong", () => liveSockets.add(socket));
+    const handshakeTimer = setTimeout(() => {
+      if (!identity) socket.close(4008, "Authentication timeout");
+    }, options.handshakeMs ?? 10_000);
+    handshakeTimer.unref();
 
     socket.on("message", (data) => {
       const message = parseMessage(data);
@@ -423,7 +449,18 @@ export function createCodeChessServer(port = 8080, options: CodeChessServerOptio
           send(socket, { type: "error", reason: "Socket is already registered" });
           return;
         }
+        if (options.allowLegacyProtocol === false) {
+          send(socket, { type: "error", reason: "Legacy protocol is disabled" });
+          socket.close(4001, "Unauthorized");
+          return;
+        }
+        if (roomStore.findPlayer(message.userId)) {
+          send(socket, { type: "error", reason: "User id is reserved by a public room" });
+          socket.close(4001, "Unauthorized");
+          return;
+        }
         identity = attachSocket(socket, message);
+        clearTimeout(handshakeTimer);
         return;
       }
 
@@ -433,6 +470,7 @@ export function createCodeChessServer(port = 8080, options: CodeChessServerOptio
           return;
         }
         identity = attachRoomSocket(socket, message);
+        if (identity) clearTimeout(handshakeTimer);
         return;
       }
 
@@ -480,6 +518,7 @@ export function createCodeChessServer(port = 8080, options: CodeChessServerOptio
     });
 
     socket.on("close", () => {
+      clearTimeout(handshakeTimer);
       if (!identity) {
         return;
       }
@@ -517,7 +556,13 @@ export function createCodeChessServer(port = 8080, options: CodeChessServerOptio
 
   const socketPing = setInterval(() => {
     for (const client of webSocketServer.clients) {
-      if (client.readyState === WebSocket.OPEN) client.ping();
+      if (client.readyState !== WebSocket.OPEN) continue;
+      if (!liveSockets.has(client)) {
+        client.terminate();
+        continue;
+      }
+      liveSockets.delete(client);
+      client.ping();
     }
   }, options.pingMs ?? 30_000);
   socketPing.unref();
