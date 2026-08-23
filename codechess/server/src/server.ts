@@ -213,9 +213,12 @@ export function createCodeChessServer(port = 8080): CodeChessServer {
       return;
     }
 
-    const chess = new Chess(game.fen);
+    const chess = game.pgn ? new Chess() : new Chess(game.fen);
+    if (game.pgn) {
+      chess.loadPgn(game.pgn);
+    }
     try {
-      chess.move({ from: message.from, to: message.to });
+      chess.move({ from: message.from, to: message.to, promotion: "q" });
     } catch {
       sendToUi(user, { type: "move_rejected", reason: "Illegal chess move" });
       return;
@@ -224,6 +227,9 @@ export function createCodeChessServer(port = 8080): CodeChessServer {
     game.fen = chess.fen();
     game.pgn = chess.pgn();
     game.currentTurn = chess.turn() === "w" ? "white" : "black";
+    if (chess.isGameOver()) {
+      game.status = "COMPLETED";
+    }
 
     const update: ServerMessage = {
       type: "move_accepted",

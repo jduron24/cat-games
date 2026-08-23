@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { WebSocket } from "ws";
+import { WebSocket, type RawData } from "ws";
 
 import { createCodeChessServer, type CodeChessServer } from "../src/server.js";
 
@@ -14,8 +14,17 @@ type PlayerConnection = {
 
 function nextMessage(client: WebSocket): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
-    client.once("error", reject);
-    client.once("message", (data) => resolve(JSON.parse(data.toString())));
+    function handleError(error: Error): void {
+      client.off("message", handleMessage);
+      reject(error);
+    }
+    function handleMessage(data: RawData): void {
+      client.off("error", handleError);
+      resolve(JSON.parse(data.toString()));
+    }
+
+    client.once("error", handleError);
+    client.once("message", handleMessage);
   });
 }
 
@@ -25,14 +34,21 @@ function nextMessages(
 ): Promise<Record<string, unknown>[]> {
   return new Promise((resolve, reject) => {
     const messages: Record<string, unknown>[] = [];
-    client.once("error", reject);
-    client.on("message", function collect(data) {
+    function handleError(error: Error): void {
+      client.off("message", collect);
+      reject(error);
+    }
+    function collect(data: RawData): void {
       messages.push(JSON.parse(data.toString()));
       if (messages.length === count) {
         client.off("message", collect);
+        client.off("error", handleError);
         resolve(messages);
       }
-    });
+    }
+
+    client.once("error", handleError);
+    client.on("message", collect);
   });
 }
 
@@ -231,6 +247,137 @@ test("accepts a legal UI move and broadcasts it to both UIs", async () => {
 
   closePlayer(white);
   closePlayer(black);
+});
+
+test("preserves the complete PGN across multiple moves", async () => {
+  const { white, black, gameId } = await createMatchedPlayers("pgn");
+  const moves = [
+    { player: white, from: "e2", to: "e4" },
+    { player: black, from: "e7", to: "e5" },
+    { player: white, from: "g1", to: "f3" },
+  ];
+
+  for (const move of moves) {
+    const whiteUpdate = nextMessage(white.ui);
+    const blackUpdate = nextMessage(black.ui);
+    move.player.ui.send(
+      JSON.stringify({ type: "move", from: move.from, to: move.to }),
+    );
+    await Promise.all([whiteUpdate, blackUpdate]);
+  }
+
+  assert.match(server.games.get(gameId)?.pgn ?? "", /1\. e4 e5 2\. Nf3/);
+
+  closePlayer(white);
+  closePlayer(black);
+});
+
+test("promotes a pawn to a queen when no promotion piece is supplied", async () => {
+  const { white, black, gameId } = await createMatchedPlayers("promotion");
+  const setupMoves = [
+    { player: white, from: "a2", to: "a4" },
+    { player: black, from: "h7", to: "h5" },
+    { player: white, from: "a4", to: "a5" },
+    { player: black, from: "h5", to: "h4" },
+    { player: white, from: "a5", to: "a6" },
+    { player: black, from: "h4", to: "h3" },
+    { player: white, from: "a6", to: "b7" },
+    { player: black, from: "h3", to: "g2" },
+  ];
+
+  for (const move of setupMoves) {
+    const whiteUpdate = nextMessage(white.ui);
+    const blackUpdate = nextMessage(black.ui);
+    move.player.ui.send(
+      JSON.stringify({ type: "move", from: move.from, to: move.to }),
+    );
+    await Promise.all([whiteUpdate, blackUpdate]);
+  }
+
+  const promotion = nextMessage(white.ui);
+  white.ui.send(JSON.stringify({ type: "move", from: "b7", to: "a8" }));
+  const promotionMessage = await promotion;
+
+  assert.equal(promotionMessage.type, "move_accepted");
+  assert.match(String(promotionMessage.fen), /^Q/);
+  assert.match(server.games.get(gameId)?.pgn ?? "", /=Q/);
+
+  closePlayer(white);
+  closePlayer(black);
+});
+
+test("completes a checkmated game and rejects later moves", async () => {
+  const { white, black, gameId } = await createMatchedPlayers("checkmate");
+  const moves = [
+    { player: white, from: "f2", to: "f3" },
+    { player: black, from: "e7", to: "e5" },
+    { player: white, from: "g2", to: "g4" },
+    { player: black, from: "d8", to: "h4" },
+  ];
+
+  for (const move of moves) {
+    const whiteUpdate = nextMessage(white.ui);
+    const blackUpdate = nextMessage(black.ui);
+    move.player.ui.send(
+      JSON.stringify({ type: "move", from: move.from, to: move.to }),
+    );
+    await Promise.all([whiteUpdate, blackUpdate]);
+  }
+
+  assert.equal(server.games.get(gameId)?.status, "COMPLETED");
+
+  const rejection = nextMessage(white.ui);
+  white.ui.send(JSON.stringify({ type: "move", from: "e2", to: "e4" }));
+  assert.deepEqual(await rejection, {
+    type: "move_rejected",
+    reason: "Game is not active",
+  });
+
+  closePlayer(white);
+  closePlayer(black);
+});
+
+test("completes stalemate, insufficient-material, and draw games", async () => {
+  const terminalPositions = [
+    {
+      name: "stalemate",
+      fen: "k7/8/1QK5/8/8/8/8/8 w - - 0 1",
+      from: "b6",
+      to: "c7",
+    },
+    {
+      name: "insufficient-material",
+      fen: "7k/8/8/8/8/8/n7/1B5K w - - 0 1",
+      from: "b1",
+      to: "a2",
+    },
+    {
+      name: "fifty-move-draw",
+      fen: "7k/8/8/8/8/8/R7/7K w - - 99 1",
+      from: "a2",
+      to: "a3",
+    },
+  ];
+
+  for (const position of terminalPositions) {
+    const { white, black, gameId } = await createMatchedPlayers(position.name);
+    const game = server.games.get(gameId);
+    assert(game);
+    game.fen = position.fen;
+    game.pgn = "";
+    game.currentTurn = "white";
+
+    const whiteUpdate = nextMessage(white.ui);
+    const blackUpdate = nextMessage(black.ui);
+    white.ui.send(
+      JSON.stringify({ type: "move", from: position.from, to: position.to }),
+    );
+    await Promise.all([whiteUpdate, blackUpdate]);
+
+    assert.equal(game.status, "COMPLETED", position.name);
+    closePlayer(white);
+    closePlayer(black);
+  }
 });
 
 test("rejects an illegal move", async () => {
