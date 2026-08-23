@@ -237,8 +237,11 @@ export class TerminalChessUI {
     }
 
     if (this.gameState.status !== "active") {
-      this.notice =
-        this.gameState.status === "paused" ? "Game is paused." : "Game is completed.";
+      this.notice = this.gameState.status === "paused"
+        ? "Game is paused."
+        : this.gameState.status === "reconnecting"
+          ? "Reconnecting. Moves are disabled."
+          : "Game is completed.";
       this.redraw();
       return;
     }

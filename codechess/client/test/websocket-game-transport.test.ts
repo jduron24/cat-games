@@ -23,7 +23,173 @@ class FakeSocket extends EventEmitter implements ClientSocket {
   }
 }
 
+const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
 describe("WebSocketGameTransport", () => {
+  it("authenticates room sessions without exposing the player token", async () => {
+    const token = "secret-player-token-that-is-long-enough";
+    const socket = new FakeSocket();
+    const notices: string[] = [];
+    const transport = new WebSocketGameTransport({
+      url: "ws://localhost:8080",
+      playerToken: token,
+      socketFactory: () => socket,
+      handshakeTimeoutMs: 50,
+    });
+    transport.onNotice((notice) => notices.push(notice.message));
+
+    const connecting = transport.connect();
+    socket.emit("open");
+    expect(JSON.parse(socket.sent[0] ?? "{}")).toEqual({ type: "room_hello", playerToken: token });
+
+    socket.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "hello_ack", userId: token, role: "ui" })),
+    );
+    await expect(connecting).rejects.toThrow(/acknowledgement/i);
+    expect(notices.join(" ")).not.toContain(token);
+  });
+
+  it("requires a room acknowledgement before room sessions are ready", async () => {
+    const socket = new FakeSocket();
+    const transport = new WebSocketGameTransport({
+      url: "ws://localhost:8080",
+      playerToken: "secret-player-token-that-is-long-enough",
+      socketFactory: () => socket,
+      handshakeTimeoutMs: 10,
+    });
+
+    const connecting = transport.connect();
+    socket.emit("open");
+    await expect(connecting).rejects.toThrow(/handshake timed out/i);
+  });
+
+  it("reconnects room sessions with capped backoff and reauthenticates", async () => {
+    const first = new FakeSocket();
+    const second = new FakeSocket();
+    const sockets = [first, second];
+    const scheduled: Array<{ callback: () => void; delayMs: number }> = [];
+    const states: GameState[] = [];
+    const transport = new WebSocketGameTransport({
+      url: "ws://localhost:8080",
+      playerToken: "secret-player-token-that-is-long-enough",
+      socketFactory: () => sockets.shift()!,
+      reconnectScheduler: {
+        schedule(callback, delayMs) {
+          scheduled.push({ callback, delayMs });
+          return callback;
+        },
+        cancel() {},
+      },
+      reconnectJitter: () => 0,
+    });
+    transport.onGameState((state) => states.push(state));
+
+    const connecting = transport.connect();
+    first.emit("open");
+    first.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "room_hello_ack", roomCode: "BLUE-CAT1", playerId: "p1" })),
+    );
+    await connecting;
+    first.emit(
+      "message",
+      Buffer.from(
+        JSON.stringify({ type: "match_found", gameId: "g1", color: "white", fen: STARTING_FEN }),
+      ),
+    );
+    first.emit("close");
+
+    expect(states.at(-1)?.status).toBe("reconnecting");
+    expect(scheduled[0]?.delayMs).toBe(250);
+    scheduled[0]?.callback();
+
+    second.emit("open");
+    expect(JSON.parse(second.sent[0] ?? "{}")).toEqual({
+      type: "room_hello",
+      playerToken: "secret-player-token-that-is-long-enough",
+    });
+    second.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "room_hello_ack", roomCode: "BLUE-CAT1", playerId: "p1" })),
+    );
+    second.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "game_resumed", fen: STARTING_FEN, pgn: "" })),
+    );
+    await Promise.resolve();
+
+    expect(states.at(-1)?.status).toBe("active");
+  });
+
+  it("cancels pending room reconnects on explicit disconnect", async () => {
+    const socket = new FakeSocket();
+    const cancelled: unknown[] = [];
+    const scheduled: Array<() => void> = [];
+    const transport = new WebSocketGameTransport({
+      url: "ws://localhost:8080",
+      playerToken: "secret-player-token-that-is-long-enough",
+      socketFactory: () => socket,
+      reconnectScheduler: {
+        schedule(callback) {
+          scheduled.push(callback);
+          return "retry-1";
+        },
+        cancel(handle) {
+          cancelled.push(handle);
+        },
+      },
+    });
+
+    const connecting = transport.connect();
+    socket.emit("open");
+    socket.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "room_hello_ack", roomCode: "BLUE-CAT1", playerId: "p1" })),
+    );
+    await connecting;
+    socket.emit("close");
+    transport.disconnect();
+
+    expect(scheduled).toHaveLength(1);
+    expect(cancelled).toEqual(["retry-1"]);
+  });
+
+  it("does not send moves while a known game is paused, completed, or reconnecting", async () => {
+    const socket = new FakeSocket();
+    const transport = new WebSocketGameTransport({
+      url: "ws://localhost:8080",
+      playerToken: "secret-player-token-that-is-long-enough",
+      socketFactory: () => socket,
+    });
+    const connecting = transport.connect();
+    socket.emit("open");
+    socket.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "room_hello_ack", roomCode: "BLUE-CAT1", playerId: "p1" })),
+    );
+    await connecting;
+    socket.emit(
+      "message",
+      Buffer.from(
+        JSON.stringify({ type: "match_found", gameId: "g1", color: "white", fen: STARTING_FEN }),
+      ),
+    );
+
+    for (const message of [
+      { type: "game_paused" },
+      { type: "game_completed", fen: STARTING_FEN, pgn: "" },
+    ]) {
+      socket.emit("message", Buffer.from(JSON.stringify(message)));
+      transport.sendMove("e2", "e4");
+    }
+    socket.emit("close");
+    transport.sendMove("e2", "e4");
+
+    expect(socket.sent.map((value) => JSON.parse(value)).filter((value) => value.type === "move"))
+      .toHaveLength(0);
+    transport.disconnect();
+  });
   it("identifies the UI and resolves only after the server acknowledges the handshake", async () => {
     const socket = new FakeSocket();
     const notices: string[] = [];
