@@ -315,16 +315,24 @@ test("completes a checkmated game and rejects later moves", async () => {
     { player: black, from: "d8", to: "h4" },
   ];
 
+  let finalMessage: Record<string, unknown> | undefined;
   for (const move of moves) {
     const whiteUpdate = nextMessage(white.ui);
     const blackUpdate = nextMessage(black.ui);
     move.player.ui.send(
       JSON.stringify({ type: "move", from: move.from, to: move.to }),
     );
-    await Promise.all([whiteUpdate, blackUpdate]);
+    const [messageForWhite, messageForBlack] = await Promise.all([
+      whiteUpdate,
+      blackUpdate,
+    ]);
+    assert.deepEqual(messageForWhite, messageForBlack);
+    finalMessage = messageForWhite;
   }
 
   assert.equal(server.games.get(gameId)?.status, "COMPLETED");
+  assert.equal(finalMessage?.type, "game_completed");
+  assert.match(String(finalMessage?.pgn), /Qh4#/);
 
   const rejection = nextMessage(white.ui);
   white.ui.send(JSON.stringify({ type: "move", from: "e2", to: "e4" }));

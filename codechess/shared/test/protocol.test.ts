@@ -58,6 +58,7 @@ test("parses valid server messages including handshake and errors", () => {
     { type: "match_found", gameId: "game-1", color: "white", fen: START_FEN },
     { type: "game_state", fen: START_FEN, turn: "white" },
     { type: "move_accepted", fen: START_FEN, turn: "black" },
+    { type: "game_completed", fen: START_FEN, pgn: "1. f3 e5 2. g4 Qh4#" },
     { type: "move_rejected", reason: "illegal" },
     { type: "game_paused" },
     { type: "opponent_agent_finished" },
@@ -78,6 +79,7 @@ test("rejects malformed server messages", () => {
     { type: "match_found", gameId: "game-1", color: "purple", fen: START_FEN },
     { type: "game_state", fen: 42, turn: "white" },
     { type: "move_accepted", fen: START_FEN, turn: "sideways" },
+    { type: "game_completed", fen: START_FEN, pgn: null },
     { type: "game_resumed", fen: START_FEN, pgn: null },
     { type: "unknown" },
   ];

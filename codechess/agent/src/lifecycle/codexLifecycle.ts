@@ -82,6 +82,7 @@ export async function runCodexLifecycle({
 }: CodexLifecycleOptions): Promise<void> {
   let agent: CodexAgent | undefined;
   let runStarted = false;
+  let terminalResultReceived = false;
 
   try {
     agent = await factory.create({
@@ -93,16 +94,32 @@ export async function runCodexLifecycle({
     const run = await agent.send(prompt);
     runStarted = true;
 
-    for await (const event of run.stream()) {
-      publishActivity(event, sink);
+    let streamFailure: unknown;
+    try {
+      for await (const event of run.stream()) {
+        publishActivity(event, sink);
+      }
+    } catch (cause) {
+      streamFailure = cause;
     }
 
     const result = await run.wait();
+    terminalResultReceived = true;
+    if (streamFailure) {
+      sink.onError(
+        new Error(`Codex activity stream failed: ${errorDetail(streamFailure)}`, {
+          cause: streamFailure,
+        }),
+      );
+    }
     if (result.status === "error") {
       throw new CodexLifecycleFailure(
         "run",
         `Codex run failed: ${result.error?.message ?? "unknown SDK error"}`,
       );
+    }
+    if (result.status === "cancelled") {
+      throw new CodexLifecycleFailure("run", "Codex run cancelled.");
     }
 
     await sink.onTurnCompleted(result.result?.trim() ?? "");
@@ -117,7 +134,7 @@ export async function runCodexLifecycle({
           );
 
     sink.onError(failure);
-    if (failure.phase === "run") {
+    if (failure.phase === "run" && terminalResultReceived) {
       await sink.onTurnCompleted("");
     }
     throw failure;

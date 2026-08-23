@@ -24,6 +24,7 @@ export type ServerMessage =
   | { type: "match_found"; gameId: string; color: PlayerColor; fen: string }
   | { type: "game_state"; fen: string; turn: PlayerColor }
   | { type: "move_accepted"; fen: string; turn: PlayerColor }
+  | { type: "game_completed"; fen: string; pgn: string }
   | { type: "move_rejected"; reason: string }
   | { type: "game_paused" }
   | { type: "opponent_agent_finished" }
@@ -89,6 +90,10 @@ export function parseServerMessage(value: unknown): ServerMessage | null {
     case "move_accepted":
       return isFen(value.fen) && isPlayerColor(value.turn)
         ? { type: value.type, fen: value.fen, turn: value.turn }
+        : null;
+    case "game_completed":
+      return isFen(value.fen) && typeof value.pgn === "string"
+        ? { type: "game_completed", fen: value.fen, pgn: value.pgn }
         : null;
     case "game_resumed":
       return isFen(value.fen) && typeof value.pgn === "string"

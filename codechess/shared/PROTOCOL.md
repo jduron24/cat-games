@@ -52,6 +52,7 @@ type ServerMessage =
         turn: "white" | "black"
       }
     | { type: "move_accepted"; fen: string; turn: "white" | "black" }
+    | { type: "game_completed"; fen: string; pgn: string }
     | { type: "move_rejected"; reason: string }
     | { type: "game_paused" }
     | { type: "opponent_agent_finished" }
@@ -66,6 +67,7 @@ type ServerMessage =
 | `match_found` | matchmaking paired two waiting users | client UI: mount the board, note assigned color |
 | `game_state` | full state sync (e.g. right after match, or on reconnect) | client UI: render board |
 | `move_accepted` | a submitted move was legal and applied | client UI: redraw board, flip turn indicator |
+| `game_completed` | an accepted move ended the game | client UI: load the final position and freeze the board as completed |
 | `move_rejected` | a submitted move was illegal | client UI: show reason, keep selection cleared |
 | `game_paused` | either player's agent finished | client UI: freeze board, show paused banner |
 | `opponent_agent_finished` | specifically the *other* player's agent finished (distinguishes from your own `done`) | client UI: "Opponent's agent finished. Game paused." |
@@ -113,6 +115,7 @@ B agent: hello(role=agent) →
 B agent: waiting           →          ← match_found (both UIs)
 A: move e2-e4   →                    ← move_accepted (both A and B)
 B: move e7-e5   →                    ← move_accepted (both A and B)
+... terminal move ...                ← game_completed (both A and B)
 ```
 
 **Pause + resume:**

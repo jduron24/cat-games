@@ -105,3 +105,66 @@ test("completes a match, move, pause, and resume across four real sockets", asyn
     await server.close();
   }
 });
+
+test("publishes checkmate as completed to both real UI transports", async () => {
+  const server = createCodeChessServer(0);
+  await new Promise<void>((resolve) =>
+    server.webSocketServer.once("listening", resolve),
+  );
+  const address = server.webSocketServer.address();
+  assert(address && typeof address === "object");
+  const url = `ws://localhost:${address.port}`;
+
+  const aliceStates: GameState[] = [];
+  const bobStates: GameState[] = [];
+  const aliceUi = new WebSocketGameTransport({ url, userId: "mate-alice" });
+  const bobUi = new WebSocketGameTransport({ url, userId: "mate-bob" });
+  aliceUi.onGameState((state) => aliceStates.push(state));
+  bobUi.onGameState((state) => bobStates.push(state));
+  const aliceAgent = new WebSocketTransport({ url, userId: "mate-alice" });
+  const bobAgent = new WebSocketTransport({ url, userId: "mate-bob" });
+
+  try {
+    await Promise.all([aliceUi.connect(), bobUi.connect()]);
+    await aliceAgent.send({ type: "waiting" });
+    await bobAgent.send({ type: "waiting" });
+    await waitFor(
+      () =>
+        aliceStates.at(-1)?.status === "active" &&
+        bobStates.at(-1)?.status === "active",
+      "both UIs to enter the checkmate game",
+    );
+
+    const aliceColor = aliceStates.at(-1)?.playerColor;
+    assert(aliceColor);
+    const whiteUi = aliceColor === "white" ? aliceUi : bobUi;
+    const blackUi = aliceColor === "black" ? aliceUi : bobUi;
+    const moves = [
+      { transport: whiteUi, from: "f2", to: "f3", turn: "black" },
+      { transport: blackUi, from: "e7", to: "e5", turn: "white" },
+      { transport: whiteUi, from: "g2", to: "g4", turn: "black" },
+      { transport: blackUi, from: "d8", to: "h4", turn: "white" },
+    ] as const;
+
+    for (const move of moves) {
+      const previousFen = aliceStates.at(-1)?.fen;
+      move.transport.sendMove(move.from, move.to);
+      await waitFor(
+        () =>
+          aliceStates.at(-1)?.fen !== previousFen &&
+          aliceStates.at(-1)?.fen === bobStates.at(-1)?.fen &&
+          aliceStates.at(-1)?.turn === move.turn &&
+          bobStates.at(-1)?.turn === move.turn,
+        `the ${move.from}-${move.to} move to reach both UIs`,
+      );
+    }
+
+    assert.equal(aliceStates.at(-1)?.status, "completed");
+    assert.equal(bobStates.at(-1)?.status, "completed");
+  } finally {
+    aliceUi.disconnect();
+    bobUi.disconnect();
+    await Promise.all([aliceAgent.close(), bobAgent.close()]);
+    await server.close();
+  }
+});

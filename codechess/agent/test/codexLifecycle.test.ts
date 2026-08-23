@@ -141,6 +141,90 @@ test("sends done and reports a terminal SDK run failure", async () => {
   assert.match(errors[0]?.message ?? "", /^Codex run failed:/);
 });
 
+test("waits for the terminal result after the activity stream fails", async () => {
+  const order: string[] = [];
+  const { sink, completions, errors } = createSink(order);
+  const factory: CodexAgentFactory = {
+    async create() {
+      order.push("create");
+      return {
+        async send() {
+          order.push("send");
+          return {
+            async *stream() {
+              order.push("stream");
+              throw new Error("activity stream disconnected");
+            },
+            async wait() {
+              order.push("wait");
+              return { status: "finished", result: "Recovered final result" };
+            },
+          };
+        },
+        async [Symbol.asyncDispose]() {
+          order.push("dispose");
+        },
+      };
+    },
+  };
+
+  await runCodexLifecycle({ prompt: "run", sink, factory });
+
+  assert.deepEqual(order, [
+    "create",
+    "waiting",
+    "send",
+    "stream",
+    "wait",
+    "error",
+    "done",
+    "dispose",
+  ]);
+  assert.deepEqual(completions, ["Recovered final result"]);
+  assert.match(errors[0]?.message ?? "", /activity stream disconnected/);
+});
+
+test("does not send done when the terminal result cannot be obtained", async () => {
+  const order: string[] = [];
+  const { sink, completions, errors } = createSink(order);
+  const factory: CodexAgentFactory = {
+    async create() {
+      order.push("create");
+      return {
+        async send() {
+          order.push("send");
+          return {
+            async *stream() {},
+            async wait() {
+              order.push("wait");
+              throw new Error("terminal channel disconnected");
+            },
+          };
+        },
+        async [Symbol.asyncDispose]() {
+          order.push("dispose");
+        },
+      };
+    },
+  };
+
+  await assert.rejects(
+    runCodexLifecycle({ prompt: "run", sink, factory }),
+    /Codex run failed: terminal channel disconnected/,
+  );
+
+  assert.deepEqual(order, [
+    "create",
+    "waiting",
+    "send",
+    "wait",
+    "error",
+    "dispose",
+  ]);
+  assert.deepEqual(completions, []);
+  assert.match(errors[0]?.message ?? "", /terminal channel disconnected/);
+});
+
 test("distinguishes an SDK startup failure from a terminal run failure", async () => {
   const order: string[] = [];
   const { sink, completions, errors } = createSink(order);
@@ -161,7 +245,7 @@ test("distinguishes an SDK startup failure from a terminal run failure", async (
   assert.match(errors[0]?.message ?? "", /^Unable to start Codex SDK run:/);
 });
 
-test("sends done for a cancelled terminal result", async () => {
+test("sends done and surfaces a cancelled terminal result", async () => {
   const order: string[] = [];
   const { sink, completions, errors } = createSink(order);
   const factory: CodexAgentFactory = {
@@ -185,16 +269,20 @@ test("sends done for a cancelled terminal result", async () => {
     },
   };
 
-  await runCodexLifecycle({ prompt: "run", sink, factory });
+  await assert.rejects(
+    runCodexLifecycle({ prompt: "run", sink, factory }),
+    /Codex run cancelled/,
+  );
 
   assert.deepEqual(order, [
     "create",
     "waiting",
     "send",
     "wait",
+    "error",
     "done",
     "dispose",
   ]);
   assert.deepEqual(completions, [""]);
-  assert.deepEqual(errors, []);
+  assert.match(errors[0]?.message ?? "", /Codex run cancelled/);
 });

@@ -61,6 +61,79 @@ describe("WebSocketGameTransport", () => {
     expect(notices).toEqual([]);
   });
 
+  it("normalizes the user ID before sending and matching the acknowledgement", async () => {
+    const socket = new FakeSocket();
+    const transport = new WebSocketGameTransport({
+      url: "ws://localhost:8080",
+      userId: "  alice  ",
+      socketFactory: () => socket,
+      handshakeTimeoutMs: 50,
+    });
+
+    const connecting = transport.connect();
+    socket.emit("open");
+    expect(JSON.parse(socket.sent[0] ?? "{}")).toEqual({
+      type: "hello",
+      userId: "alice",
+      role: "ui",
+    });
+
+    socket.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "hello_ack", userId: "alice", role: "ui" })),
+    );
+    await connecting;
+  });
+
+  it("rejects an acknowledgement for a different UI identity", async () => {
+    const socket = new FakeSocket();
+    const transport = new WebSocketGameTransport({
+      url: "ws://localhost:8080",
+      userId: "alice",
+      socketFactory: () => socket,
+      handshakeTimeoutMs: 50,
+    });
+
+    const connecting = transport.connect();
+    socket.emit("open");
+    socket.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "hello_ack", userId: "bob", role: "ui" })),
+    );
+
+    await expect(
+      Promise.race([
+        connecting,
+        new Promise<void>((_resolve, reject) =>
+          setTimeout(() => reject(new Error("UI handshake remained pending")), 50),
+        ),
+      ]),
+    ).rejects.toThrow(/acknowledgement.*identity/i);
+  });
+
+  it("rejects when the UI handshake is not acknowledged in time", async () => {
+    const socket = new FakeSocket();
+    const transport = new WebSocketGameTransport({
+      url: "ws://localhost:8080",
+      userId: "alice",
+      socketFactory: () => socket,
+      handshakeTimeoutMs: 10,
+    });
+
+    const connecting = transport.connect();
+    socket.emit("open");
+
+    await expect(
+      Promise.race([
+        connecting,
+        new Promise<void>((_resolve, reject) =>
+          setTimeout(() => reject(new Error("UI transport did not enforce its timeout")), 50),
+        ),
+      ]),
+    ).rejects.toThrow(/handshake timed out/i);
+    expect(socket.closed).toBe(true);
+  });
+
   it("translates game state, pause, and rejection protocol messages", async () => {
     const socket = new FakeSocket();
     const states: GameState[] = [];
@@ -110,6 +183,53 @@ describe("WebSocketGameTransport", () => {
     transport.disconnect();
     expect(JSON.parse(socket.sent.at(-1) ?? "{}")).toEqual({ type: "disconnect" });
     expect(socket.closed).toBe(true);
+  });
+
+  it("publishes a completed state when the server ends the game", async () => {
+    const socket = new FakeSocket();
+    const states: GameState[] = [];
+    const transport = new WebSocketGameTransport({
+      url: "ws://localhost:8080",
+      userId: "ui-test",
+      socketFactory: () => socket,
+    });
+    transport.onGameState((state) => states.push(state));
+
+    const connecting = transport.connect();
+    socket.emit("open");
+    socket.emit(
+      "message",
+      Buffer.from(JSON.stringify({ type: "hello_ack", userId: "ui-test", role: "ui" })),
+    );
+    await connecting;
+
+    socket.emit(
+      "message",
+      Buffer.from(
+        JSON.stringify({
+          type: "match_found",
+          gameId: "game-1",
+          color: "white",
+          fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        }),
+      ),
+    );
+    socket.emit(
+      "message",
+      Buffer.from(
+        JSON.stringify({
+          type: "game_completed",
+          fen: "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3",
+          pgn: "1. f3 e5 2. g4 Qh4#",
+        }),
+      ),
+    );
+
+    expect(states.at(-1)).toMatchObject({
+      status: "completed",
+      turn: "white",
+      playerColor: "white",
+    });
   });
 
   it("rejects invalid protocol shapes without crashing or publishing corrupt state", async () => {

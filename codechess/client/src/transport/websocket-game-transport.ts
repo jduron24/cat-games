@@ -16,12 +16,14 @@ export type WebSocketGameTransportOptions = {
   url: string;
   userId: string;
   socketFactory?: (url: string) => ClientSocket;
+  handshakeTimeoutMs?: number;
 };
 
 export class WebSocketGameTransport implements GameTransport {
   private readonly url: string;
   private readonly userId: string;
   private readonly socketFactory: (url: string) => ClientSocket;
+  private readonly handshakeTimeoutMs: number;
   private readonly stateHandlers = new Set<(state: GameState) => void>();
   private readonly noticeHandlers = new Set<(notice: TransportNotice) => void>();
   private socket: ClientSocket | null = null;
@@ -30,9 +32,13 @@ export class WebSocketGameTransport implements GameTransport {
 
   constructor(options: WebSocketGameTransportOptions) {
     this.url = options.url;
-    this.userId = options.userId;
+    this.userId = options.userId.trim();
+    if (!this.userId) {
+      throw new Error("WebSocket UI transport requires a non-empty user ID.");
+    }
     this.socketFactory =
       options.socketFactory ?? ((url) => new WebSocket(url) as unknown as ClientSocket);
+    this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? 5_000;
   }
 
   connect(): Promise<void> {
@@ -45,20 +51,30 @@ export class WebSocketGameTransport implements GameTransport {
 
     this.connection = new Promise((resolve, reject) => {
       let acknowledged = false;
+      const handshakeTimeout = setTimeout(() => {
+        if (!acknowledged) {
+          reject(new Error("WebSocket UI handshake timed out."));
+          socket.close();
+        }
+      }, this.handshakeTimeoutMs);
 
       socket.on("open", () => {
         this.send({ type: "hello", userId: this.userId, role: "ui" });
       });
       socket.on("message", (data) => {
         const message = this.handleMessage(data);
-        if (
-          message?.type === "hello_ack" &&
-          message.userId === this.userId &&
-          message.role === "ui"
-        ) {
-          acknowledged = true;
-          resolve();
+        if (message?.type === "hello_ack") {
+          if (message.userId === this.userId && message.role === "ui") {
+            acknowledged = true;
+            clearTimeout(handshakeTimeout);
+            resolve();
+          } else if (!acknowledged) {
+            clearTimeout(handshakeTimeout);
+            reject(new Error("Server acknowledgement identity did not match this UI."));
+            socket.close();
+          }
         } else if (message?.type === "error" && !acknowledged) {
+          clearTimeout(handshakeTimeout);
           reject(new Error(message.reason));
         }
       });
@@ -66,12 +82,14 @@ export class WebSocketGameTransport implements GameTransport {
         const detail = error instanceof Error ? error.message : String(error);
         this.emitNotice("error", `WebSocket error: ${detail}`);
         if (!acknowledged) {
+          clearTimeout(handshakeTimeout);
           reject(error);
         }
       });
       socket.on("close", () => {
         this.emitNotice("info", "Disconnected from the CodeChess server.");
         if (!acknowledged) {
+          clearTimeout(handshakeTimeout);
           reject(new Error("WebSocket closed before the handshake was acknowledged."));
         }
       });
@@ -153,6 +171,14 @@ export class WebSocketGameTransport implements GameTransport {
       case "game_state":
       case "move_accepted":
         this.updateState({ fen: message.fen, turn: message.turn, status: "active" });
+        break;
+      case "game_completed":
+        this.updateState({
+          fen: message.fen,
+          turn: turnFromFen(message.fen),
+          status: "completed",
+        });
+        this.emitNotice("info", "Game completed.");
         break;
       case "move_rejected":
         this.emitNotice("error", `Move rejected: ${message.reason}`);

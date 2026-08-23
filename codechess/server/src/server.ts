@@ -227,15 +227,18 @@ export function createCodeChessServer(port = 8080): CodeChessServer {
     game.fen = chess.fen();
     game.pgn = chess.pgn();
     game.currentTurn = chess.turn() === "w" ? "white" : "black";
-    if (chess.isGameOver()) {
+    const isGameOver = chess.isGameOver();
+    if (isGameOver) {
       game.status = "COMPLETED";
     }
 
-    const update: ServerMessage = {
-      type: "move_accepted",
-      fen: game.fen,
-      turn: game.currentTurn,
-    };
+    const update: ServerMessage = isGameOver
+      ? { type: "game_completed", fen: game.fen, pgn: game.pgn }
+      : {
+          type: "move_accepted",
+          fen: game.fen,
+          turn: game.currentTurn,
+        };
     sendToUi(users.get(game.playerWhite), update);
     sendToUi(users.get(game.playerBlack), update);
   }
