@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --import tsx src/cli.ts",
-    "test": "node --import tsx src/cli.ts --help",
+    "test": "tsx --test test/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

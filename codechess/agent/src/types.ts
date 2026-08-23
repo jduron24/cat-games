@@ -1,6 +1,6 @@
-export type AgentTransportMessage =
-  | { type: "waiting" }
-  | { type: "done" };
+import type { ClientMessage } from "@codechess/shared";
+
+export type AgentTransportMessage = Extract<ClientMessage, { type: "waiting" | "done" }>;
 
 export interface AgentTransport {
   send(message: AgentTransportMessage): Promise<void>;
